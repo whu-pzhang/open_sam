@@ -14,7 +14,7 @@ from torch.utils.data.dataloader import default_collate
 from segment_anything.utils.transforms import ResizeLongestSide
 from pycocotools.coco import COCO
 
-from mmseg.registry import DATASETS
+from open_sam.registry import DATASETS
 
 prompt_type = ['point', 'box', 'mask']
 

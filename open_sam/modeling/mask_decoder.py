@@ -12,7 +12,7 @@ import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
 
-from mmseg.registry import MODELS
+from open_sam.registry import MODELS
 from .common import LayerNorm2d
 
 

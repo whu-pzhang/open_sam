@@ -12,12 +12,13 @@ import numpy as np
 import torch
 from torch import nn
 
-from mmseg.registry import MODELS
+from open_sam.registry import MODELS
 from .common import LayerNorm2d
 
 
 @MODELS.register_module()
 class PromptEncoder(nn.Module):
+
     def __init__(
         self,
         embed_dim: int,
@@ -186,6 +187,7 @@ class PromptEncoder(nn.Module):
 
 class PositionEmbeddingRandom(nn.Module):
     """Positional encoding using random spatial frequencies."""
+
     def __init__(self,
                  num_pos_feats: int = 64,
                  scale: Optional[float] = None) -> None:

@@ -7,7 +7,7 @@ import mmengine.fileio as fileio
 import numpy as np
 from mmseg.datasets import BaseSegDataset
 
-from mmseg.registry import DATASETS
+from open_sam.registry import DATASETS
 
 
 @DATASETS.register_module()

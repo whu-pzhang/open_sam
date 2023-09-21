@@ -14,8 +14,8 @@ from open_sam.datasets.transforms import ResizeLongestSide, PackSamInputs
 from open_sam.datasets.utils import custom_collate_fn
 from open_sam.datasets import SegDataset
 
-from mmseg.registry import MODELS, DATASETS, TRANSFORMS
-from mmseg.utils import register_all_modules
+from open_sam.registry import MODELS, DATASETS, TRANSFORMS
+from open_sam.utils import register_all_modules
 
 register_all_modules()
 
@@ -251,15 +251,16 @@ def test_sam_predict():
 
 def test_sam_loss():
     pipeline = [
-        dict(type='LoadImageFromFile'),
-        dict(type='LoadAnnotations', imdecode_backend='pillow'),
-        dict(type='RandomResize',
+        dict(type='mmseg.LoadImageFromFile'),
+        dict(type='mmseg.LoadAnnotations', imdecode_backend='pillow'),
+        dict(type='mmseg.RandomResize',
              scale=(2048, 512),
              ratio_range=(0.5, 2.0),
              keep_ratio=True),
-        dict(type='RandomCrop', crop_size=(512, 512), cat_max_ratio=0.75),
-        dict(type='RandomFlip', prob=0.5),
-        dict(type='PhotoMetricDistortion'),
+        dict(type='mmseg.RandomCrop', crop_size=(512, 512),
+             cat_max_ratio=0.75),
+        dict(type='mmseg.RandomFlip', prob=0.5),
+        dict(type='mmseg.PhotoMetricDistortion'),
         dict(type='ResizeLongestEdge', scale=1024),
         dict(type='GenerateSAMPrompt', max_instances=15,
              points_per_instance=2),
@@ -491,11 +492,11 @@ def build_sam(arch):
             iou_head_hidden_dim=256,
         ),
         loss_decode=[
-            dict(type='FocalLoss', use_sigmoid=True),
-            dict(type='CrossEntropyLoss',
+            dict(type='mmseg.FocalLoss', use_sigmoid=True),
+            dict(type='mmseg.CrossEntropyLoss',
                  use_sigmoid=True,
                  avg_non_ignore=True),
-            dict(type='DiceLoss'),
+            dict(type='mmseg.DiceLoss'),
         ],
     )
 

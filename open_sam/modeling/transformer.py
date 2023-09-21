@@ -10,12 +10,13 @@ from typing import Tuple, Type
 import torch
 from torch import Tensor, nn
 
-from mmseg.registry import MODELS
+from open_sam.registry import MODELS
 from .common import MLPBlock
 
 
 @MODELS.register_module()
 class TwoWayTransformer(nn.Module):
+
     def __init__(
         self,
         depth: int,
@@ -108,6 +109,7 @@ class TwoWayTransformer(nn.Module):
 
 
 class TwoWayAttentionBlock(nn.Module):
+
     def __init__(
         self,
         embedding_dim: int,
@@ -186,6 +188,7 @@ class TwoWayAttentionBlock(nn.Module):
 class Attention(nn.Module):
     """An attention layer that allows for downscaling the size of the embedding
     after projection to queries, keys, and values."""
+
     def __init__(
         self,
         embedding_dim: int,

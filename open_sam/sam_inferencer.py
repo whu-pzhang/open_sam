@@ -4,9 +4,9 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import torch
 from torchvision.ops.boxes import batched_nms, box_area
-
 from mmengine.runner.checkpoint import load_checkpoint
-from mmseg.registry import MODELS, TRANSFORMS
+
+from open_sam.registry import MODELS, TRANSFORMS
 
 from open_sam.utils import (
     MaskData, area_from_rle, batch_iterator, batched_mask_to_box,
@@ -17,6 +17,7 @@ from open_sam.utils import (
 
 # yapf: disable
 model_zoo = {
+    'tiny': None,
     'base': 'https://download.openmmlab.com/mmsegmentation/v0.5/sam/sam_vit-base-p16_3rdparty_sa1b-1024x1024_20230413-78a25eed.pth',  # noqa
     'large': 'https://download.openmmlab.com/mmsegmentation/v0.5/sam/sam_vit-large-p16_3rdparty_sa1b-1024x1024_20230413-940520da.pth',  # noqa
     'huge': 'https://download.openmmlab.com/mmsegmentation/v0.5/sam/sam_vit-huge-p16_3rdparty_sa1b-1024x1024_20230413-faaf96f6.pth',  # noqa
@@ -322,7 +323,8 @@ class SAMInferencer:
                     iou_head_depth=3,
                     iou_head_hidden_dim=256,
                 ),
-                loss_decode=dict(type='CrossEntropyLoss', avg_non_ignore=True),
+                loss_decode=dict(type='mmseg.CrossEntropyLoss',
+                                 avg_non_ignore=True),
             ))
         load_checkpoint(model, model_zoo.get(arch), strict=True)
         if torch.cuda.is_available():

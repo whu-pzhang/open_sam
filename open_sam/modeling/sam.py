@@ -12,9 +12,9 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-from mmseg.registry import MODELS
 from mmengine.model import BaseModel
 
+from open_sam.registry import MODELS
 from .mask_decoder import MaskDecoder
 from .prompt_encoder import PromptEncoder
 

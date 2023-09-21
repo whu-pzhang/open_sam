@@ -1,7 +1,7 @@
 import torch
 
 from mmengine.model import BaseDataPreprocessor
-from mmseg.registry import MODELS
+from open_sam.registry import MODELS
 
 
 class SamDataPreprocessor(BaseDataPreprocessor):
@@ -14,4 +14,3 @@ class SamDataPreprocessor(BaseDataPreprocessor):
         data = self.cast_data(data)
 
         inputs = data['inputs']
-

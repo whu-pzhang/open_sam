@@ -12,7 +12,7 @@ from mmcv.transforms import to_tensor, BaseTransform
 from mmcv.transforms import LoadAnnotations as MMCV_LoadAnnotations
 from mmengine.structures import PixelData, InstanceData
 
-from mmseg.registry import TRANSFORMS
+from open_sam.registry import TRANSFORMS
 
 from .sam_data_sample import SamDataSample
 
