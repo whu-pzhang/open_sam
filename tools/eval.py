@@ -10,6 +10,7 @@ from pathlib import Path
 import argparse
 from tqdm import tqdm
 
+from mmengine.utils import ProgressBar
 from mmseg.evaluation import IoUMetric as _IoUMetric
 
 
@@ -61,7 +62,8 @@ def main():
 
     metric = IoUMetric(class_names=['backgroud', 'building'],
                        iou_metrics=['mIoU', 'mFscore'])
-    pbar = tqdm(total=len(gt_images))
+    # pbar = tqdm(total=len(gt_images))
+    pbar = ProgressBar(task_num=len(gt_images))
     for gt_img, pred_img in zip(gt_images, pred_images):
         gt = np.array(Image.open(gt_img))
         gt = (gt // args.scale).astype(np.uint8)

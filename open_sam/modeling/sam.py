@@ -104,7 +104,7 @@ class SAM(BaseModel):
 
     def forward(self,
                 inputs,
-                data_samples,
+                data_samples=None,
                 mode='loss',
                 multimask_output=False):
         batched_inputs, data_samples = self._format_inputs(
@@ -113,7 +113,7 @@ class SAM(BaseModel):
         if mode == 'loss':
             return self.loss(batched_inputs, data_samples)
         else:
-            return self.predict(batched_inputs, data_samples, multimask_output)
+            return self.predict(batched_inputs, multimask_output)
 
     def loss(self, batch_input, data_samples):
         low_res_logits, iou_predictions = self._forward(batch_input,
@@ -150,7 +150,7 @@ class SAM(BaseModel):
                     loss[loss_name] += cur_loss
         return loss, output_logits
 
-    def predict(self, batch_input, data_samples, multimask_output=False):
+    def predict(self, batch_input, multimask_output=False):
         pred_masks, iou_predictions = self._forward(batch_input,
                                                     multimask_output)
         outputs = []
@@ -169,7 +169,7 @@ class SAM(BaseModel):
                 'low_res_logits': low_res_mask,
             })
 
-        return outputs, data_samples
+        return outputs
 
     def _forward(
         self,

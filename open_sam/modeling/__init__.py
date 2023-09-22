@@ -4,9 +4,12 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+from .vit_sam import ViTSAM
 from .mask_decoder import MaskDecoder
 from .prompt_encoder import PromptEncoder
 from .sam import SAM
 from .transformer import TwoWayTransformer
 
-__all__ = ['SAM', 'MaskDecoder', 'PromptEncoder', 'TwoWayTransformer']
+__all__ = [
+    'ViTSAM', 'SAM', 'MaskDecoder', 'PromptEncoder', 'TwoWayTransformer'
+]

@@ -112,7 +112,7 @@ def main2():
     def build_sam(arch):
         import torch
         from mmengine.runner.checkpoint import load_checkpoint
-        from open_sam.sam_inferencer import model_zoo
+        from open_sam.sam_predictor import model_zoo
 
         cfg = dict(
             type='SAM',

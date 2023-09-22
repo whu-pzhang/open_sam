@@ -15,9 +15,7 @@ from tqdm import tqdm
 
 from pycocotools.coco import COCO
 
-sys.path.insert(0, osp.abspath('.'))
-
-from open_sam.sam_inferencer import SAMInferencer
+from open_sam import build_sam, SamPredictor
 '''
 SAM 分割精度测试：
 
@@ -336,7 +334,9 @@ def main():
     palette = [i for rgb in data_info['palette'] for i in rgb]
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    sam_predictor = SAMInferencer(arch=args.model_type)
+    sam = build_sam(arch=args.model_type)
+    sam = sam.to(device)
+    sam_predictor = SamPredictor(sam)
 
     suffix = ('*.jpg', '*.png', '*.tiff', '*.tif')
     img_list = [f for s in suffix for f in img_dir.rglob(s)]

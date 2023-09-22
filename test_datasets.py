@@ -8,7 +8,7 @@ from mmengine.runner import Runner
 from torchvision.transforms import Compose
 
 from open_sam.datasets.whu_building import WHUBuildingDataset
-from open_sam.sam_inferencer import SAMInferencer
+from open_sam.sam_predictor import SAMInferencer
 from open_sam.modeling.sam import SAM
 from open_sam.datasets.transforms import ResizeLongestSide, PackSamInputs
 from open_sam.datasets.utils import custom_collate_fn
@@ -458,11 +458,11 @@ def test_base_dataset():
 
 def build_sam(arch):
     from mmengine.runner.checkpoint import load_checkpoint
-    from open_sam.sam_inferencer import model_zoo
+    from open_sam.sam_predictor import model_zoo
 
     cfg = dict(
         type='SAM',
-        image_encoder=dict(type='mmpretrain.ViTSAM',
+        image_encoder=dict(type='ViTSAM',
                            arch=arch,
                            img_size=1024,
                            patch_size=16,
