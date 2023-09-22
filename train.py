@@ -8,11 +8,8 @@ from mmengine.config import Config, DictAction
 from mmengine.logging import print_log
 from mmengine.runner import Runner
 
-from mmseg.registry import RUNNERS, MODELS
-
-import open_sam
-
-from mmseg.utils import register_all_modules
+from open_sam.registry import RUNNERS, MODELS
+from open_sam.utils import register_all_modules
 
 
 def parse_args():

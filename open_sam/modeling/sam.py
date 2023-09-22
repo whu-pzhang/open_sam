@@ -12,7 +12,8 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-from mmengine.model import BaseModel
+from mmengine.model import BaseModule
+from mmseg.utils import OptConfigType
 
 from open_sam.registry import MODELS
 from .mask_decoder import MaskDecoder
@@ -20,7 +21,7 @@ from .prompt_encoder import PromptEncoder
 
 
 @MODELS.register_module()
-class SAM(BaseModel):
+class SAM(BaseModule):
     mask_threshold: float = 0.0
     image_format: str = 'RGB'
 
@@ -30,7 +31,8 @@ class SAM(BaseModel):
                  mask_decoder: dict,
                  loss_decode: dict,
                  pixel_mean: List[float] = [123.675, 116.28, 103.53],
-                 pixel_std: List[float] = [58.395, 57.12, 57.375]) -> None:
+                 pixel_std: List[float] = [58.395, 57.12, 57.375],
+                 init_cfg: OptConfigType = None) -> None:
         """SAM predicts object masks from an image and input prompts. Borrowed
         from https://github.com/facebookresearch/segment-anything.
 
@@ -47,7 +49,7 @@ class SAM(BaseModel):
           pixel_std (list(float)): Std values for normalizing pixels in the
             input image.
         """
-        super().__init__()
+        super().__init__(init_cfg=init_cfg)
         self.image_encoder = MODELS.build(image_encoder)
         self.prompt_encoder: PromptEncoder = MODELS.build(prompt_encoder)
         self.mask_decoder: MaskDecoder = MODELS.build(mask_decoder)
@@ -67,6 +69,9 @@ class SAM(BaseModel):
         else:
             raise TypeError(f'loss_decode must be a dict or sequence of dict,\
                 but got {type(loss_decode)}')
+
+    def init_weights(self):
+        super().init_weights()
 
     @property
     def device(self) -> Any:

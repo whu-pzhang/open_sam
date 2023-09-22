@@ -282,7 +282,7 @@ class SamAutomaticMaskGenerator:
 
     def __init__(
         self,
-        arch: str = 'base',
+        model,
         points_per_side: Optional[int] = 32,
         points_per_batch: int = 64,
         pred_iou_thresh: float = 0.88,
@@ -368,7 +368,7 @@ class SamAutomaticMaskGenerator:
         if min_mask_region_area > 0:
             import cv2  # type: ignore # noqa: F401
 
-        self.predictor = SAMInferencer(arch)
+        self.predictor = SamPredictor(model)
         self.points_per_batch = points_per_batch
         self.pred_iou_thresh = pred_iou_thresh
         self.stability_score_thresh = stability_score_thresh

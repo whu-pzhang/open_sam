@@ -23,7 +23,7 @@ class GenerateSAMPrompt(BaseTransform):
     def __init__(self,
                  max_instances=15,
                  points_per_instance=2,
-                 ignore_values=[0, 255]):
+                 ignore_values=[255]):
 
         self.max_instances = max_instances
         self.points_per_instance = points_per_instance
@@ -78,8 +78,7 @@ class GenerateSAMPrompt(BaseTransform):
 
                 # sample points
                 y, x = torch.meshgrid(torch.arange(0, img_h),
-                                      torch.arange(0, img_w),
-                                      indexing='ij')
+                                      torch.arange(0, img_w))
                 x_idx = torch.masked_select(x, torch.as_tensor(cur_object))
                 y_idx = torch.masked_select(y, torch.as_tensor(cur_object))
                 if len(x_idx) < points_per_instance:
@@ -109,6 +108,9 @@ class GenerateSAMPrompt(BaseTransform):
 
         out = dict(gt_masks=masks, point_coords=point_coords, boxes=boxes)
         return out
+
+    def generate_prompt_from_det():
+        pass
 
 
 @TRANSFORMS.register_module()

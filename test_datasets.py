@@ -3,52 +3,13 @@ import numpy as np
 import torch
 import matplotlib.pyplot as plt
 
-from mmengine.runner import Runner
-
-from torchvision.transforms import Compose
-
-from open_sam.datasets.whu_building import WHUBuildingDataset
-from open_sam.sam_predictor import SAMInferencer
-from open_sam.modeling.sam import SAM
-from open_sam.datasets.transforms import ResizeLongestSide, PackSamInputs
-from open_sam.datasets.utils import custom_collate_fn
-from open_sam.datasets import SegDataset
+from mmcv.transforms import Resize
+from mmdet.datasets.transforms import LoadAnnotations
 
 from open_sam.registry import MODELS, DATASETS, TRANSFORMS
 from open_sam.utils import register_all_modules
 
 register_all_modules()
-
-
-def sam_batch_predict(predictor, input_bboxes, img_hw, batch_size=32):
-    num_bboxes = len(input_bboxes)
-    num_batches = int(np.ceil(num_bboxes / batch_size))
-
-    masks = []
-    input_bboxes_tensor = torch.from_numpy(input_bboxes).to(predictor.device)
-    for i in range(num_batches):
-        left_index = i * batch_size
-        right_index = (i + 1) * batch_size
-        if i == num_batches - 1:
-            batch_boxes = input_bboxes_tensor[left_index:]
-        else:
-            batch_boxes = input_bboxes_tensor[left_index:right_index]
-
-        transformed_boxes = predictor.transform.apply_boxes_torch(
-            batch_boxes, img_hw)
-
-        batch_masks, scores, logits = predictor.predict_torch(
-            point_coords=None,
-            point_labels=None,
-            boxes=transformed_boxes,
-            multimask_output=False,
-            return_logits=False)
-
-        batch_masks = batch_masks.squeeze(1)
-        masks.extend([*batch_masks])
-
-    masks = torch.stack(masks, dim=0)
-    return masks
 
 
 def show_mask(mask, ax, random_color=False, alpha=0.8):
@@ -93,424 +54,90 @@ def show_box(box, ax):
                       lw=2))
 
 
-def show_data_sample(sample, figsize=(8, 8)):
-    print(sample['img_path'])
+def vis_dataset():
+    # dataset
+    dataset_type = 'mmseg.LoveDADataset'
+    data_root = 'data/loveDA/'
 
-    fig, ax = plt.subplots(1, 1, figsize=figsize)
-    ax.imshow(sample['img'])
-
-    for idx, mask in enumerate(sample['gt_masks']):
-        show_mask(mask, ax, random_color=True)
-    for box in sample['boxes']:
-        show_box(box, ax)
-
-    point_coords = sample['point_coords']  # BxNx2
-    point_labels = np.ones(point_coords.shape[:2], dtype=np.uint8)  # BxN
-    show_points(point_coords, point_labels, ax, marker_size=200)
-
-    # ax.axis('off')
-    plt.tight_layout()
-    plt.show()
-
-
-def test_dataset():
-    dataset_cfg = dict(
-        type='WHUBuildingDataset',
-        data_root='data/whu-building/cropped_aerial_data',
-        split='train',
-        ann_file='data/whu-building/train.txt',
-        max_objects=15,
-        points_per_instance=2,
-        transform=ResizeLongestSide(1024),
-    )
-    ds = DATASETS.build(dataset_cfg)
-
-    sample = ds[0]
-
-    fig, ax = plt.subplots(1, 1, figsize=(10, 10))
-    ax.imshow(sample['img'])
-    for idx, mask in enumerate(sample['gt_masks']):
-        show_mask(mask, ax, random_color=True)
-    for box in sample['boxes']:
-        show_box(box, ax)
-
-    point_coords = sample['point_coords']  # BxNx2
-    point_labels = np.ones(point_coords.shape[:2], dtype=np.uint8)  # BxN
-    show_points(point_coords, point_labels, ax, marker_size=200)
-
-    # ax.axis('off')
-    plt.tight_layout()
-    plt.show()
-
-    train_dataloader = dict(dataset=ds,
-                            batch_size=4,
-                            num_workers=4,
-                            sampler=dict(type='DefaultSampler', shuffle=True),
-                            drop_last=True,
-                            collate_fn=dict(type='custom_collate_fn'))
-
-    loader = Runner.build_dataloader(train_dataloader)
-
-    for idx, data_batch in enumerate(loader):
-        if idx == 0:
-            print(data_batch.keys())
-        print(f'{idx+1}/{len(loader)}: ', data_batch['img_shape'])
-        # for box in data_batch['boxes']:
-        #     print(box.shape)
-        break
-
-
-def test_sam_predict():
-    dataset_cfg = dict(type='WHUBuildingDataset',
-                       data_root='data/whu-building/cropped_aerial_data',
-                       split='train',
-                       ann_file='data/whu-building/train.txt',
-                       max_objects=15,
-                       points_per_instance=2)
-    ds = DATASETS.build(dataset_cfg)
-
-    sample = ds[1]
-    print(sample['filename'])
-    print(sample['gt_masks'].shape)
-
-    def sam_infer(image,
-                  prompt_boxes,
-                  point_coords,
-                  point_labels,
-                  multimask_output=False):
-        ori_size = image.shape[:2]
-
-        predictor = SAMInferencer(arch='base')
-        sam = predictor.model
-        device = predictor.device
-        transform = ResizeLongestSide(1024)
-
-        input_image = transform.apply_image(image)
-        input_image = torch.as_tensor(input_image, device=device)
-        input_image = input_image.permute(2, 0, 1).contiguous()
-
-        # boxes = torch.as_tensor(prompt_boxes).to(device)
-        # boxes = transform.apply_boxes_torch(boxes, ori_size)
-        boxes = transform.apply_boxes(prompt_boxes, ori_size)
-        boxes = torch.as_tensor(boxes).to(device)
-
-        # point_coords = torch.as_tensor(point_coords).to(device)
-        # point_coords = transform.apply_coords_torch(point_coords, ori_size)
-        point_coords = transform.apply_coords(point_coords, ori_size)
-        point_coords = torch.as_tensor(point_coords).to(device)
-        point_labels = torch.as_tensor(point_labels).to(device)
-
-        batch_input = [
-            dict(
-                image=input_image,
-                original_size=ori_size,
-                boxes=boxes,
-                point_coords=point_coords,
-                point_labels=point_labels,
-            )
-        ]
-
-        output = sam(batch_input,
-                     data_samples=None,
-                     mode='predict',
-                     multimask_output=multimask_output)
-
-        return output
-
-    image = sample['img']  # 3XHxW
-    boxes = sample['boxes']  # Bx4
-    point_coords = sample['point_coords']  # BxNx2
-    point_labels = np.ones(point_coords.shape[:2], dtype=np.uint8)  # BxN
-
-    # inference
-    batched_output = sam_infer(image,
-                               boxes,
-                               point_coords,
-                               point_labels,
-                               multimask_output=True)
-
-    print(batched_output[0].keys())
-    print(batched_output[0]['masks'].shape)
-    iou_predictions = batched_output[0]['iou_predictions']
-    scores, mask_idxs = torch.max(iou_predictions, dim=1, keepdim=True)
-
-    fig, ax = plt.subplots(1, 1, figsize=(10, 10))
-
-    ax.imshow(image)
-    for idx, mask in enumerate(batched_output[0]['masks']):
-        best_mask = mask[mask_idxs[idx]]
-        show_mask(best_mask.cpu().numpy(), ax, random_color=True)
-    for box in boxes:
-        show_box(box, ax)
-    show_points(point_coords, point_labels, ax, marker_size=200)
-
-    # ax.axis('off')
-    plt.tight_layout()
-    plt.show()
-
-
-def test_sam_loss():
-    pipeline = [
-        dict(type='mmseg.LoadImageFromFile'),
-        dict(type='mmseg.LoadAnnotations', imdecode_backend='pillow'),
-        dict(type='mmseg.RandomResize',
-             scale=(2048, 512),
-             ratio_range=(0.5, 2.0),
-             keep_ratio=True),
-        dict(type='mmseg.RandomCrop', crop_size=(512, 512),
-             cat_max_ratio=0.75),
-        dict(type='mmseg.RandomFlip', prob=0.5),
-        dict(type='mmseg.PhotoMetricDistortion'),
+    train_pipeline = [
+        dict(type='LoadImageFromFile'),
+        dict(type='mmseg.LoadAnnotations'),
+        # dict(type='mmseg.RandomResize',
+        #      scale=(2048, 512),
+        #      ratio_range=(0.5, 2.0),
+        #      keep_ratio=True),
+        # dict(type='mmseg.RandomCrop', crop_size=(512, 512),
+        #      cat_max_ratio=0.75),
+        # dict(type='mmseg.RandomFlip', prob=0.5),
+        # dict(type='mmseg.PhotoMetricDistortion'),
         dict(type='ResizeLongestEdge', scale=1024),
         dict(type='GenerateSAMPrompt', max_instances=15,
              points_per_instance=2),
         # dict(type='ResizeLongestSide', target_length=1024),
-        dict(type='PackSamInputs'),
+        # dict(type='PackSamInputs'),
     ]
-    ds = SegDataset(data_root='data/whu-building/cropped_aerial_data',
-                    img_suffix='.tif',
-                    seg_map_suffix='.tif',
-                    data_prefix=dict(img_path='train/image',
-                                     seg_map_path='train/label'),
-                    ann_file='../train.txt',
-                    pipeline=pipeline)
 
-    train_dataloader = dict(
-        dataset=ds,
-        batch_size=2,
-        num_workers=0,
-        sampler=dict(type='DefaultSampler', shuffle=True),
-        drop_last=True,
+    dataset = dict(
+        type=dataset_type,
+        data_root=data_root,
+        img_suffix='.png',
+        seg_map_suffix='.png',
+        data_prefix=dict(img_path='img_dir/train',
+                         seg_map_path='ann_dir/train'),
+        #    ann_file='../train.txt',
+        pipeline=train_pipeline)
+
+    ds = DATASETS.build(dataset)
+
+    sample = ds[100]
+    # print(sample['data_samples'].gt_instances)
+    # quit()
+
+    fig, ax = plt.subplots(1, 1, figsize=(10, 10))
+    ax.imshow(sample['img'])
+    for idx, mask in enumerate(sample['gt_masks']):
+        show_mask(mask, ax, random_color=True)
+    for box in sample['boxes']:
+        show_box(box, ax)
+
+    point_coords = sample['point_coords']  # BxNx2
+    point_labels = np.ones(point_coords.shape[:2], dtype=np.uint8)  # BxN
+    show_points(point_coords, point_labels, ax, marker_size=200)
+
+    # ax.axis('off')
+    plt.tight_layout()
+    plt.savefig('junk.jpg')
+    plt.show()
+
+
+def vis_det_dataset():
+    dataset_type = 'HRSIDDataset'
+    data_root = 'data/HRSID_JPG/'
+
+    train_pipeline = [
+        dict(type='LoadImageFromFile'),
+        dict(type='mmdet.LoadAnnotations', with_bbox=True, with_mask=True),
+        dict(type='mmdet.Resize', scale=(1333, 800), keep_ratio=True),
+        dict(type='mmdet.RandomFlip', prob=0.5),
+        # dict(type='PackDetInputs')
+    ]
+
+    dataset = dict(
+        type=dataset_type,
+        data_root=data_root,
+        ann_file='annotations/train2017.json',
+        data_prefix=dict(img='JPEGImages/'),
+        filter_cfg=dict(filter_empty_gt=True),
+        pipeline=train_pipeline,
     )
 
-    loader = Runner.build_dataloader(train_dataloader)
+    ds = DATASETS.build(dataset)
 
-    def sam_train(model, loader):
-        device = model.device
-        for idx, data_batch in enumerate(loader):
-
-            inputs = {
-                k: [i.to(device) for i in v]
-                for k, v in data_batch['inputs'].items()
-            }
-            data_samples = [
-                item.to(device) for item in data_batch['data_samples']
-            ]
-
-            losses, logits = model(inputs, data_samples, mode='loss')
-
-            print(losses)
-
-            for logit, gt_mask in zip(logits, data_samples):
-                gt_mask = gt_mask.gt_instances.masks.data.detach().cpu()
-
-                print(logit.shape, gt_mask.shape)
-
-                f, ax = plt.subplots(1, 2)
-                for m in gt_mask.numpy():
-                    show_mask(m, ax[0], random_color=True)
-
-                for m in logit.squeeze():
-                    m = (torch.sigmoid(m) > 0.5).numpy()
-                    show_mask(m, ax[1], random_color=True)
-
-                plt.tight_layout()
-                plt.show()
-
-            if idx == 5:
-                break
-
-        # ori_size = image.shape[:2]
-
-        # predictor = SAMInferencer(arch='base')
-        # sam = predictor.model
-        # device = predictor.device
-        # transform = ResizeLongestSide(1024)
-
-        # input_image = transform.apply_image(image)
-        # input_image = torch.as_tensor(input_image, device=device)
-        # input_image = input_image.permute(2, 0, 1).contiguous()
-
-        # boxes = torch.as_tensor(prompt_boxes).to(device)
-        # boxes = transform.apply_boxes_torch(boxes, ori_size)
-
-        # point_coords = torch.as_tensor(point_coords).to(device)
-        # point_coords = transform.apply_coords_torch(point_coords, ori_size)
-        # point_labels = torch.as_tensor(point_labels).to(device)
-
-        # batch_input = [
-        #     dict(
-        #         image=input_image,
-        #         original_size=ori_size,
-        #         boxes=boxes,
-        #         point_coords=point_coords,
-        #         point_labels=point_labels,
-        #     )
-        # ]
-
-        # data_samples = [
-        #     dict(gt_masks=gt_masks, img_path=None, mask_path=None),
-        # ]
-
-        # output = sam(batch_input, data_samples=data_samples, mode='loss')
-
-        # return output
-
-    # image = sample['image']  # 3XHxW
-    # boxes = sample['boxes']  # Bx4
-    # point_coords = sample['point_coords']  # BxNx2
-    # point_labels = np.ones(point_coords.shape[:2], dtype=np.uint8)  # BxN
-    # gt_masks = sample['gt_masks']  # BxHxW
-
-    # # print(gt_masks.shape)
-
-    # losses = sam_infer(image, boxes, point_coords, point_labels, gt_masks)
-    # print(losses)
-
-    sam = build_sam(arch='base')
-
-    for p in sam.image_encoder.parameters():
-        p.requires_grad = False
-
-    sam_train(sam, loader)
-
-
-def test_base_dataset():
-    from open_sam.datasets.base import SegDataset
-
-    register_all_modules()
-
-    def vis_data():
-        pipeline = [
-            dict(type='LoadImageFromFile'),
-            dict(type='LoadAnnotations', imdecode_backend='pillow'),
-            dict(type='RandomResize',
-                 scale=(2048, 512),
-                 ratio_range=(0.5, 2.0),
-                 keep_ratio=True),
-            dict(type='RandomCrop', crop_size=(512, 512), cat_max_ratio=0.75),
-            dict(type='RandomFlip', prob=0.5),
-            dict(type='PhotoMetricDistortion'),
-            dict(type='ResizeLongestEdge', scale=1024),
-            dict(type='GenerateSAMPrompt',
-                 max_instances=15,
-                 points_per_instance=1),
-            # dict(type='ResizeLongestSide', target_length=1024),
-            # dict(type='PackSamInputs'),
-        ]
-        ds = SegDataset(data_root='data/whu-building/cropped_aerial_data',
-                        img_suffix='.tif',
-                        seg_map_suffix='.tif',
-                        data_prefix=dict(img_path='train/image',
-                                         seg_map_path='train/label'),
-                        ann_file='../train.txt',
-                        pipeline=pipeline)
-        # ds = SegDataset(data_root='data/iSAID',
-        #                 img_suffix='.png',
-        #                 seg_map_suffix='_instance_color_RGB.png',
-        #                 data_prefix=dict(img_path='img_dir/train',
-        #                                  seg_map_path='ann_dir/train'),
-        #                 pipeline=pipeline)
-        show_data_sample(ds[100])
-
-    def load_data():
-        pipeline = [
-            dict(type='LoadImageFromFile'),
-            dict(type='LoadAnnotations', imdecode_backend='pillow'),
-            dict(type='RandomFlip', prob=0.5),
-            dict(type='ResizeLongestEdge', scale=1024),
-            dict(type='GenerateSAMPrompt',
-                 max_instances=15,
-                 points_per_instance=2),
-            # dict(type='ResizeLongestSide', target_length=1024),
-            dict(type='PackSamInputs'),
-        ]
-        ds = SegDataset(data_root='data/whu-building/cropped_aerial_data',
-                        img_suffix='.tif',
-                        seg_map_suffix='.tif',
-                        data_prefix=dict(img_path='train/image',
-                                         seg_map_path='train/label'),
-                        ann_file='../train.txt',
-                        pipeline=pipeline)
-        train_dataloader = dict(
-            dataset=ds,
-            batch_size=4,
-            num_workers=4,
-            persistent_workers=True,
-            sampler=dict(type='InfiniteSampler', shuffle=True),
-            drop_last=True,
-        )
-
-        loader = Runner.build_dataloader(train_dataloader)
-
-        for idx, data_batch in enumerate(loader):
-            if idx == 0:
-                print(data_batch['inputs'].keys())
-            print(f'{idx+1}/{len(loader)}: ',
-                  data_batch['data_samples'][0].metainfo)
-            # for box in data_batch['boxes']:
-            #     print(box.shape)
-            # break
-
-    # vis_data()
-    load_data()
-
-
-def build_sam(arch):
-    from mmengine.runner.checkpoint import load_checkpoint
-    from open_sam.sam_predictor import model_zoo
-
-    cfg = dict(
-        type='SAM',
-        image_encoder=dict(type='ViTSAM',
-                           arch=arch,
-                           img_size=1024,
-                           patch_size=16,
-                           out_channels=256,
-                           use_abs_pos=True,
-                           use_rel_pos=True,
-                           window_size=14),
-        prompt_encoder=dict(
-            type='PromptEncoder',
-            embed_dim=256,
-            image_embedding_size=(64, 64),
-            input_image_size=(1024, 1024),
-            mask_in_chans=16,
-        ),
-        mask_decoder=dict(
-            type='MaskDecoder',
-            num_multimask_outputs=3,
-            transformer=dict(
-                type='TwoWayTransformer',
-                depth=2,
-                embedding_dim=256,
-                mlp_dim=2048,
-                num_heads=8,
-            ),
-            transformer_dim=256,
-            iou_head_depth=3,
-            iou_head_hidden_dim=256,
-        ),
-        loss_decode=[
-            dict(type='mmseg.FocalLoss', use_sigmoid=True),
-            dict(type='mmseg.CrossEntropyLoss',
-                 use_sigmoid=True,
-                 avg_non_ignore=True),
-            dict(type='mmseg.DiceLoss'),
-        ],
-    )
-
-    model = MODELS.build(cfg)
-
-    load_checkpoint(model, model_zoo.get(arch), strict=True)
-    if torch.cuda.is_available():
-        model = model.cuda()
-    return model
+    sample = ds[0]
+    for k, v in sample.items():
+        print(f'{k}: {v}')
 
 
 if __name__ == '__main__':
-    # test_dataset()
-    # test_sam_predict()
-    test_sam_loss()
-    # print(TRANSFORMS)
-    # test_base_dataset()
+    # vis_dataset()
+    vis_det_dataset()

@@ -1,38 +1,3 @@
-# model
-model = dict(
-    type='SAM',
-    image_encoder=dict(type='mmpretrain.ViTSAM',
-                       arch='base',
-                       img_size=1024,
-                       patch_size=16,
-                       out_channels=256,
-                       use_abs_pos=True,
-                       use_rel_pos=True,
-                       window_size=14),
-    prompt_encoder=dict(
-        type='PromptEncoder',
-        embed_dim=256,
-        image_embedding_size=(64, 64),
-        input_image_size=(1024, 1024),
-        mask_in_chans=16,
-    ),
-    mask_decoder=dict(
-        type='MaskDecoder',
-        num_multimask_outputs=3,
-        transformer=dict(
-            type='TwoWayTransformer',
-            depth=2,
-            embedding_dim=256,
-            mlp_dim=2048,
-            num_heads=8,
-        ),
-        transformer_dim=256,
-        iou_head_depth=3,
-        iou_head_hidden_dim=256,
-    ),
-    loss_decode=dict(type='CrossEntropyLoss'),
-)
-
 # dataset
 dataset_type = 'SegDataset'
 data_root = 'data/whu-building/cropped_aerial_data'

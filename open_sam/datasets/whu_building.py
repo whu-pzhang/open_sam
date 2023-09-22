@@ -106,8 +106,7 @@ class WHUBuildingDataset(Dataset):
 
                 # sample points
                 y, x = torch.meshgrid(torch.arange(0, img_h),
-                                      torch.arange(0, img_w),
-                                      indexing='ij')
+                                      torch.arange(0, img_w))
                 x_idx = torch.masked_select(x, torch.as_tensor(cur_object))
                 y_idx = torch.masked_select(y, torch.as_tensor(cur_object))
                 if len(x_idx) < points_per_instance:
@@ -130,6 +129,7 @@ class WHUBuildingDataset(Dataset):
             prompt_type=random.choice(self.prompt_types),
             point_coords=np.stack(point_coords),
             boxes=np.stack(boxes),
+            # mask_inputs=None,
         )
 
         if self.transform:
