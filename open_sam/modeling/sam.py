@@ -12,16 +12,20 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-from mmengine.model import BaseModule
-from mmseg.utils import OptConfigType
+from mmengine.model import BaseModel
+from mmseg.utils import OptConfigType, ConfigType
+from mmdet.models.utils import get_uncertain_point_coords_with_randomness
+from mmcv.ops import point_sample
 
 from open_sam.registry import MODELS
 from .mask_decoder import MaskDecoder
 from .prompt_encoder import PromptEncoder
 
+import matplotlib.pyplot as plt
+
 
 @MODELS.register_module()
-class SAM(BaseModule):
+class SAM(BaseModel):
     mask_threshold: float = 0.0
     image_format: str = 'RGB'
 
@@ -29,9 +33,21 @@ class SAM(BaseModule):
                  image_encoder: dict,
                  prompt_encoder: dict,
                  mask_decoder: dict,
-                 loss_decode: dict,
+                 loss_mask: ConfigType = dict(type='mmdet.CrossEntropyLoss',
+                                              use_sigmoid=True,
+                                              reduction='mean',
+                                              loss_weight=5.0),
+                 loss_dice: ConfigType = dict(type='mmdet.DiceLoss',
+                                              use_sigmoid=True,
+                                              activate=True,
+                                              reduction='mean',
+                                              naive_dice=True,
+                                              eps=1.0,
+                                              loss_weight=5.0),
                  pixel_mean: List[float] = [123.675, 116.28, 103.53],
                  pixel_std: List[float] = [58.395, 57.12, 57.375],
+                 train_cfg: OptConfigType = None,
+                 test_cfg: OptConfigType = None,
                  init_cfg: OptConfigType = None) -> None:
         """SAM predicts object masks from an image and input prompts. Borrowed
         from https://github.com/facebookresearch/segment-anything.
@@ -60,15 +76,18 @@ class SAM(BaseModule):
 
         self.ignore_index = 255
 
-        if isinstance(loss_decode, dict):
-            self.loss_decode = MODELS.build(loss_decode)
-        elif isinstance(loss_decode, (list, tuple)):
-            self.loss_decode = nn.ModuleList()
-            for loss in loss_decode:
-                self.loss_decode.append(MODELS.build(loss))
-        else:
-            raise TypeError(f'loss_decode must be a dict or sequence of dict,\
-                but got {type(loss_decode)}')
+        # =========
+
+        self.test_cfg = test_cfg
+        self.train_cfg = train_cfg
+        if train_cfg:
+            self.num_points = self.train_cfg.get('num_points', 12544)
+            self.oversample_ratio = self.train_cfg.get('oversample_ratio', 3.0)
+            self.importance_sample_ratio = self.train_cfg.get(
+                'importance_sample_ratio', 0.75)
+
+        self.loss_mask = MODELS.build(loss_mask)
+        self.loss_dice = MODELS.build(loss_dice)
 
     def init_weights(self):
         super().init_weights()
@@ -91,10 +110,7 @@ class SAM(BaseModule):
             prompt_type = metainfo['prompt_type']
             gt_instances = data_samples[idx].gt_instances
 
-            inputs = dict(
-                image=img,
-                original_size=metainfo['original_size'],
-            )
+            inputs = dict(image=img, original_size=metainfo['original_size'])
 
             if prompt_type == 0:
                 inputs.update(point_coords=gt_instances.point_coords.data,
@@ -122,38 +138,68 @@ class SAM(BaseModule):
 
     def loss(self, batch_input, data_samples):
         low_res_logits, iou_predictions = self._forward(batch_input,
-                                                        multimask_output=False)
-        loss = dict()
-        if not isinstance(self.loss_decode, nn.ModuleList):
-            losses_decode = [self.loss_decode]
-        else:
-            losses_decode = self.loss_decode
+                                                        multimask_output=True)
+        loss_dict = dict()
+        batch_size = len(data_samples)
+        loss_mask_total = 0
+        loss_dice_total = 0
 
-        output_logits = []
-        for batch_idx, (logits, iou_score) in enumerate(
+        for batch_idx, (logits, iou_scores) in enumerate(
                 zip(low_res_logits, iou_predictions)):
-            # B,1,256,256
-            gt = data_samples[batch_idx]['gt_masks']
 
+            gt = data_samples[batch_idx]['gt_masks']
             high_res_logits = F.interpolate(logits,
                                             size=gt.shape[-2:],
                                             mode='bilinear',
                                             align_corners=False)
+
             # handle multiple-mask output
-            if high_res_logits.size(1) > 1:
-                idx = torch.argmax(iou_score)
-                high_res_logits = high_res_logits[:, idx:idx + 1]
+            #
+            num_masks_per_prompt = high_res_logits.size(1)
+            if num_masks_per_prompt > 1:
+                b, num_masks, h, w = high_res_logits.shape
+                idx = torch.argmin(iou_scores, dim=1, keepdim=True)
+                idx = idx.reshape(b, 1, 1, 1).expand(b, 1, h, w)
+                high_res_logits = torch.gather(high_res_logits,
+                                               dim=1,
+                                               index=idx)
 
-            output_logits.append(high_res_logits.detach().cpu())
+            num_total_masks = gt.size(0)
+            # ===
+            with torch.no_grad():
+                point_coords = get_uncertain_point_coords_with_randomness(
+                    high_res_logits, None, self.num_points,
+                    self.oversample_ratio, self.importance_sample_ratio)
+                mask_point_targets = point_sample(
+                    gt.unsqueeze(1).float(), point_coords).squeeze(1)
 
-            for loss_decode in losses_decode:
-                cur_loss = loss_decode(high_res_logits, gt)
-                loss_name = loss_decode.loss_name
-                if loss_name not in loss:
-                    loss[loss_name] = cur_loss
-                else:
-                    loss[loss_name] += cur_loss
-        return loss, output_logits
+            mask_point_preds = point_sample(high_res_logits, point_coords)
+
+            # cls loss
+            loss_mask = self.loss_mask(mask_point_preds.reshape(-1),
+                                       mask_point_targets.reshape(-1),
+                                       avg_factor=num_total_masks *
+                                       self.num_points)
+            # dice loss
+            loss_dice = self.loss_dice(mask_point_preds,
+                                       mask_point_targets,
+                                       avg_factor=num_total_masks)
+
+            # TODO: loss iou
+            # compute predicted mask iou with gt
+            # iou_scores
+
+            loss_mask_total += loss_mask
+            loss_dice_total += loss_dice
+            # ===
+
+        loss_dict['loss_mask'] = loss_mask_total / batch_size
+        loss_dict['loss_dice'] = loss_dice_total / batch_size
+
+        return loss_dict
+
+    def loss_by_single(self, mask_preds, gt_instances, img_metas):
+        pass
 
     def predict(self, batch_input, multimask_output=False):
         pred_masks, iou_predictions = self._forward(batch_input,
@@ -272,12 +318,10 @@ class SAM(BaseModule):
           (torch.Tensor): Batched masks in BxCxHxW format, where (H, W)
             is given by original_size.
         """
-        masks = F.interpolate(
-            masks,
-            self.image_encoder.img_size,
-            mode='bilinear',
-            align_corners=False,
-        )
+        masks = F.interpolate(masks,
+                              self.image_encoder.img_size,
+                              mode='bilinear',
+                              align_corners=False)
         masks = masks[..., :input_size[0], :input_size[1]]
         masks = F.interpolate(masks,
                               original_size,

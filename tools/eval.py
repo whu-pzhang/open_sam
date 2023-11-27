@@ -60,8 +60,19 @@ def main():
     gt_images = [f for s in suffix for f in gt_dir.rglob(s)]
     pred_images = [f for s in suffix for f in pred_dir.rglob(s)]
 
-    metric = IoUMetric(class_names=['backgroud', 'building'],
-                       iou_metrics=['mIoU', 'mFscore'])
+    metric = IoUMetric(
+        class_names=[
+            # 'impervious_surface', 'building', 'low_vegetation', 'tree', 'car',
+            # 'clutter'
+            'background',
+            'building',
+            'road',
+            'water',
+            'barren',
+            'forest',
+            'agricultural'
+        ],
+        iou_metrics=['mIoU', 'mFscore'])
     # pbar = tqdm(total=len(gt_images))
     pbar = ProgressBar(task_num=len(gt_images))
     for gt_img, pred_img in zip(gt_images, pred_images):

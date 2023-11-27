@@ -71,3 +71,8 @@ class SegDataset(BaseSegDataset):
 @DATASETS.register_module()
 class HRSIDDataset(CocoDataset):
     METAINFO = {'classes': ('ship'), 'palette': [[220, 20, 60]]}
+
+
+@DATASETS.register_module()
+class WHUBuidlingDataset(CocoDataset):
+    METAINFO = {'classes': ('building'), 'palette': [[255, 255, 255]]}

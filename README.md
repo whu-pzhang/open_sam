@@ -1,6 +1,13 @@
 # Open SAM
 
 
+## TODO
+
+- [] 支持mask2coco，数据全部采用coco格式
+- [] 支持SAM微调训练
+
+
+
 ## SAM 分割精度测试
 
 直接采用数据集真值生成 prompt，然后利用SAM完成分割，计算精度指标
@@ -16,7 +23,6 @@ val set performance
 | SAM-Base  | boxes       | 98.35      | 87.31    | 92.83     |
 | SAM-Large | boxes       | 98.63      | 89.4     | **94.02** |
 | SAM-Huge  | boxes       | 98.59      | 89.14    | 93.87     |
-
 
 
 
@@ -42,6 +48,15 @@ with clutter
 | SAM-Large | boxes       | 78.56       | 86.75    | 81.85   | 67.87 | 95.66 | 75.67   | **81.00** |
 | SAM-Huge  | boxes       | 77.29       | 83.57    | 81.12   | 67.65 | 96.07 | 75.33   | 80.17     |
 
+
+## Finetune SAM
+
+### whu-building
+
+| Model    | Prompt Type | Style             | background | building | mIoU  |
+| -------- | ----------- | ----------------- | ---------- | -------- | ----- |
+| SAM-Tiny | boxes       | Zero-shot         | 97.97      | 85.09    | 91.53 |
+| SAM-Tiny | boxes       | Finetune(decoder) | 98.44      | 87.88    | 93.16 |
 
 
 ## Acknowledgement

@@ -18,6 +18,7 @@ def register_all_modules(init_default_scope: bool = True) -> None:
     """  # noqa
     import open_sam.datasets  # noqa: F401,F403
     import open_sam.modeling  # noqa: F401,F403
+    import open_sam.metric
 
     if init_default_scope:
         never_created = DefaultScope.get_current_instance() is None \

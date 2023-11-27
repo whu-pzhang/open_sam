@@ -827,6 +827,8 @@ class TinyViT(BaseModule):
                 LayerNorm2d(self.out_channels, eps=1e-6),
             )
 
+        self._freeze()
+
     def set_layer_lr_decay(self, layer_lr_decay):
         # TODO: add layer_lr_decay
         pass
@@ -855,6 +857,10 @@ class TinyViT(BaseModule):
             stage.eval()
             for param in stage.parameters():
                 param.requires_grad = False
+
+    def _freeze(self):
+        for param in self.parameters():
+            param.requires_grad = False
 
     def train(self, mode=True):
         super(TinyViT, self).train(mode)

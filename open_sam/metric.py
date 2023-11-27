@@ -1,7 +1,8 @@
 import torch
 
 from mmengine.evaluator import BaseMetric
-from mmseg.registry import METRICS
+
+from .registry import METRICS
 
 
 @METRICS.register_module()

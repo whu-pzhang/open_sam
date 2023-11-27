@@ -53,7 +53,7 @@ def parse_args():
 def main():
     args = parse_args()
 
-    print(MODELS)
+    register_all_modules(init_default_scope=True)
 
     # load config
     cfg = Config.fromfile(args.config)

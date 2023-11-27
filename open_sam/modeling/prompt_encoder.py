@@ -70,6 +70,12 @@ class PromptEncoder(nn.Module):
         )
         self.no_mask_embed = nn.Embedding(1, embed_dim)
 
+        self._freeze()
+
+    def _freeze(self):
+        for param in self.parameters():
+            param.requires_grad = False
+
     def get_dense_pe(self) -> torch.Tensor:
         """Returns the positional encoding used to encode point prompts,
         applied to a dense set of points the shape of the image encoding.

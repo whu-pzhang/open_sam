@@ -12,6 +12,7 @@ from PIL import Image
 import torch
 from torch.utils.data import Dataset
 from tqdm import tqdm
+from mmengine.utils import ProgressBar
 
 from pycocotools.coco import COCO
 
@@ -99,6 +100,9 @@ def sam_batch_predict(predictor, input_bboxes, img_hw, batch_size=32):
         transformed_boxes = predictor.transform.apply_boxes_torch(
             batch_boxes, img_hw)
 
+        # output mask: (B,num_masks,H,W)
+        # output iou scores: (B,num_masks)
+        # output logits: (B,num_masks,256,256)
         batch_masks, scores, logits = predictor.predict_torch(
             point_coords=None,
             point_labels=None,
@@ -168,6 +172,7 @@ class RSDataset(Dataset):
                  ann_dir=None,
                  mode='seg_map',
                  reduce_zero_label=False,
+                 ignore_index=[255],
                  **kwargs):
 
         assert mode in ['coco', 'seg_map']
@@ -180,6 +185,7 @@ class RSDataset(Dataset):
         self.reduce_zero_label = reduce_zero_label
         self.img_suffix = img_suffix
         self.seg_map_suffix = seg_map_suffix
+        self.ignore_index = ignore_index
 
         if self.ann_file and (not osp.isabs(self.ann_file)):
             self.ann_file = self.data_root / self.ann_file
@@ -223,13 +229,16 @@ class RSDataset(Dataset):
                 seg_map = seg_map - 1
                 seg_map[seg_map == 254] = 255
 
-            instances = mask2instance(seg_map)
+            instances = mask2instance(seg_map, ignore_index=self.ignore_index)
 
-        # LD to DL
-        results = {
-            k: np.array([d[k] for d in instances])
-            for k in instances[0]
-        }
+        if len(instances) == 0:
+            results = {}
+        else:
+            # LD to DL
+            results = {
+                k: np.array([d[k] for d in instances])
+                for k in instances[0]
+            }
         results.update(
             dict(filename=data_info['filename'],
                  image=image,
@@ -275,6 +284,8 @@ DATASET_INFO = {
          img_dir='val/image',
          ann_dir='val/label',
          reduce_zero_label=False,
+         img_suffix='.tif',
+         seg_map_suffix='.tif',
          classes=('background', 'building'),
          palette=[[0, 0, 0], [255, 255, 255]]),
     'loveda':
@@ -282,23 +293,35 @@ DATASET_INFO = {
          img_dir='img_dir/val',
          ann_dir='ann_dir/val',
          reduce_zero_label=True,
+         img_suffix='.png',
+         seg_map_suffix='.png',
          classes=('background', 'building', 'road', 'water', 'barren',
                   'forest', 'agricultural'),
          palette=[[255, 255, 255], [255, 0, 0], [255, 255, 0], [0, 0, 255],
                   [159, 129, 183], [0, 255, 0], [255, 195, 128]]),
     'potsdam':
-    dict(img_dir='data/Potsdam/img_dir/val',
-         ann_dir='data/Potsdam/ann_dir/val',
-         reduce_zero_label=True,
-         classes=('impervious_surface', 'building', 'low_vegetation', 'tree',
-                  'car', 'clutter'),
-         palette=[[255, 255, 255], [0, 0, 255], [0, 255, 255], [0, 255, 0],
-                  [255, 255, 0], [255, 0, 0]]),
+    dict(
+        data_root='data/Potsdam',
+        img_dir='img_dir/val',
+        ann_dir='ann_dir/val',
+        reduce_zero_label=True,
+        img_suffix='.png',
+        seg_map_suffix='.png',
+        ignore_index=[255],  # with clutter
+        classes=('impervious_surface', 'building', 'low_vegetation', 'tree',
+                 'car', 'clutter'),
+        palette=[[255, 255, 255], [0, 0, 255], [0, 255, 255], [0, 255, 0],
+                 [255, 255, 0], [255, 0, 0]]),
     'hrsid':
     dict(data_root='data/HRSID_JPG',
          img_prefix='JPEGImages',
          ann_file='annotations/train2017.json',
-         mode='coco')
+         mode='coco'),
+    'nwpu':
+    dict(data_root='data/nwpu',
+         img_prefix='images',
+         ann_file='annotations/train.json',
+         mode='coco'),
 }
 
 
@@ -308,7 +331,7 @@ def parse_args():
     parser.add_argument('--model_type',
                         type=str,
                         default='base',
-                        choices=['base', 'large', 'huge'])
+                        choices=['tiny', 'base', 'large', 'huge'])
     parser.add_argument('--dataset', type=str, default='loveda')
     parser.add_argument('--checkpoint', type=str, default=None)
 
@@ -334,7 +357,7 @@ def main():
     palette = [i for rgb in data_info['palette'] for i in rgb]
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    sam = build_sam(arch=args.model_type)
+    sam = build_sam(arch=args.model_type, checkpoint=args.checkpoint)
     sam = sam.to(device)
     sam_predictor = SamPredictor(sam)
 
@@ -345,29 +368,32 @@ def main():
     pbar = tqdm(total=len(dataset))
     for data in dataset:
         filename = data['filename']
-        pbar.set_description(filename)
-
         img = data['image']
-        cat_ids = data['cat_id']
-        bboxes = data['bbox']
+        cat_ids = data.get('cat_id', None)
+        bboxes = data.get('bbox', None)
 
-        #
-        sam_predictor.set_image(img)
+        pbar.set_description(f'{filename}')
 
-        masks = []
-        for cat_id, bbox in zip(cat_ids, bboxes):
-            cur_bbox = np.array(bbox)
-            cur_masks = sam_batch_predict(sam_predictor, cur_bbox,
-                                          img.shape[:2])
+        if cat_ids is not None:
             #
-            for idx, mask in enumerate(cur_masks):
-                mask = mask.cpu().numpy()
-                area = np.sum(mask)
-                ann = dict(segmentation=mask, area=area, id=cat_id)
-                masks.append(ann)
+            sam_predictor.set_image(img)
 
-        sorted_masks = sorted(masks, key=(lambda x: x['area']), reverse=True)
-        seg_maps = instance2segmap(sorted_masks, img.shape[:2])
+            masks = []
+            for cat_id, bbox in zip(cat_ids, bboxes):
+                cur_bbox = np.array(bbox)
+                cur_masks = sam_batch_predict(sam_predictor, cur_bbox,
+                                              img.shape[:2])
+                for idx, mask in enumerate(cur_masks):
+                    mask = mask.cpu().numpy()
+                    area = np.sum(mask)
+                    ann = dict(segmentation=mask, area=area, id=cat_id)
+                    masks.append(ann)
+            sorted_masks = sorted(masks,
+                                  key=(lambda x: x['area']),
+                                  reverse=True)
+            seg_maps = instance2segmap(sorted_masks, img.shape[:2])
+        else:
+            seg_maps = np.zeros(img.shape[:2], dtype=np.uint8)
 
         out_file = out_dir / filename
         # cv2.imwrite(str(out_file), seg_maps)

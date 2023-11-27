@@ -115,12 +115,11 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Show coco json file')
     parser.add_argument('--data-root', default=None, help='dataset root')
     parser.add_argument('--img-dir',
-                        default='data/coco/train2017',
+                        default='train2017',
                         help='image folder path')
-    parser.add_argument(
-        '--ann-file',
-        default='data/coco/annotations/instances_train2017.json',
-        help='ann file path')
+    parser.add_argument('--ann-file',
+                        default='annotations/instances_train2017.json',
+                        help='ann file path')
     parser.add_argument('--wait-time',
                         type=float,
                         default=2,

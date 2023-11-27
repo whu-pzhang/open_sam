@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 
 from mmcv.transforms import Resize
 from mmdet.datasets.transforms import LoadAnnotations
+from mmdet.structures.mask import BitmapMasks
 
 from open_sam.registry import MODELS, DATASETS, TRANSFORMS
 from open_sam.utils import register_all_modules
@@ -54,10 +55,12 @@ def show_box(box, ax):
                       lw=2))
 
 
-def vis_dataset():
+def vis_seg_dataset():
     # dataset
-    dataset_type = 'mmseg.LoveDADataset'
-    data_root = 'data/loveDA/'
+    # dataset_type = 'mmseg.LoveDADataset'
+    # data_root = 'data/loveDA/'
+    dataset_type = 'SegDataset'
+    data_root = 'data/whu-building/cropped_aerial_data'
 
     train_pipeline = [
         dict(type='LoadImageFromFile'),
@@ -71,8 +74,10 @@ def vis_dataset():
         # dict(type='mmseg.RandomFlip', prob=0.5),
         # dict(type='mmseg.PhotoMetricDistortion'),
         dict(type='ResizeLongestEdge', scale=1024),
-        dict(type='GenerateSAMPrompt', max_instances=15,
-             points_per_instance=2),
+        dict(type='GenerateSAMPrompt',
+             max_instances_per_classes=5,
+             points_per_instance=1,
+             ignore_values=[0, 255]),
         # dict(type='ResizeLongestSide', target_length=1024),
         # dict(type='PackSamInputs'),
     ]
@@ -80,11 +85,15 @@ def vis_dataset():
     dataset = dict(
         type=dataset_type,
         data_root=data_root,
-        img_suffix='.png',
-        seg_map_suffix='.png',
-        data_prefix=dict(img_path='img_dir/train',
-                         seg_map_path='ann_dir/train'),
-        #    ann_file='../train.txt',
+        # img_suffix='.png',
+        # seg_map_suffix='.png',
+        # data_prefix=dict(img_path='img_dir/train',
+        #                  seg_map_path='ann_dir/train'),
+        #
+        img_suffix='.tif',
+        seg_map_suffix='.tif',
+        data_prefix=dict(img_path='train/image', seg_map_path='train/label'),
+        ann_file='../train.txt',
         pipeline=train_pipeline)
 
     ds = DATASETS.build(dataset)
@@ -106,38 +115,70 @@ def vis_dataset():
 
     # ax.axis('off')
     plt.tight_layout()
-    plt.savefig('junk.jpg')
+    # plt.savefig('junk.jpg')
     plt.show()
 
 
-def vis_det_dataset():
-    dataset_type = 'HRSIDDataset'
-    data_root = 'data/HRSID_JPG/'
+def vis_coco_dataset():
+    from mmcv.transforms import Resize
+    # dataset_type = 'HRSIDDataset'
+    # data_root = 'data/HRSID_JPG/'
+    dataset_type = 'mmdet.CocoDataset'
+    # data_root = 'data/whu-building/cropped_aerial_data'
+
+    data_root = 'D:/datasets/02-ObjectDet/nwpu'
+    metainfo = dict(classes=('airplane', 'storage tank', 'baseball diamond',
+                             'tennis court', 'basketball court',
+                             'ground track field', 'vehicle', 'harbor',
+                             'bridge', 'ship'), )
 
     train_pipeline = [
         dict(type='LoadImageFromFile'),
-        dict(type='mmdet.LoadAnnotations', with_bbox=True, with_mask=True),
-        dict(type='mmdet.Resize', scale=(1333, 800), keep_ratio=True),
+        dict(type='mmdet.LoadAnnotations', with_bbox=True, with_mask=False),
         dict(type='mmdet.RandomFlip', prob=0.5),
-        # dict(type='PackDetInputs')
+        # dict(type='PackDetInputs'),
+        dict(type='ResizeLongestEdge', scale=1024),
+        dict(type='GenerateSAMPrompt',
+             max_instances_per_classes=10,
+             points_per_instance=2),
     ]
 
     dataset = dict(
         type=dataset_type,
         data_root=data_root,
-        ann_file='annotations/train2017.json',
-        data_prefix=dict(img='JPEGImages/'),
-        filter_cfg=dict(filter_empty_gt=True),
+        # ann_file='annotations/train2017.json',
+        # data_prefix=dict(img='JPEGImages'),
+        metainfo=metainfo,
+        # ann_file='annotations/whu-building_train.json',
+        # data_prefix=dict(img='train/image'),
+        ann_file='annotations/train.json',
+        data_prefix=dict(img='images'),
+        filter_cfg=dict(filter_empty_gt=True, min_size=32),
         pipeline=train_pipeline,
     )
 
     ds = DATASETS.build(dataset)
 
-    sample = ds[0]
-    for k, v in sample.items():
-        print(f'{k}: {v}')
+    sample = ds[10]
+
+    for sample in ds:
+        fig, ax = plt.subplots(1, 1, figsize=(10, 10))
+        ax.imshow(sample['img'][..., ::-1])
+        for idx, mask in enumerate(sample['gt_masks']):
+            show_mask(mask, ax, random_color=True)
+        for box in sample['boxes']:
+            show_box(box, ax)
+
+        point_coords = sample['point_coords']  # BxNx2
+        point_labels = np.ones(point_coords.shape[:2], dtype=np.uint8)  # BxN
+        show_points(point_coords, point_labels, ax, marker_size=200)
+
+        # ax.axis('off')
+        plt.tight_layout()
+        # plt.savefig('junk.jpg')
+        plt.show()
 
 
 if __name__ == '__main__':
-    # vis_dataset()
-    vis_det_dataset()
+    # vis_seg_dataset()
+    vis_coco_dataset()

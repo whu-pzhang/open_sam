@@ -15,6 +15,22 @@ model_zoo = {
 # yapf: enable
 
 
+def build_sam_vit_h(checkpoint=None):
+    return build_sam(arch='huge', checkpoint=checkpoint)
+
+
+def build_sam_vit_l(checkpoint=None):
+    return build_sam(arch='large', checkpoint=checkpoint)
+
+
+def build_sam_vit_b(checkpoint=None):
+    return build_sam(arch='base', checkpoint=checkpoint)
+
+
+def build_sam_vit_t(checkpoint=None):
+    return build_sam(arch='tiny', checkpoint=checkpoint)
+
+
 def build_sam(arch='huge', checkpoint=None):
     if arch == 'tiny':
         image_encoder = dict(type='TinyViT',
@@ -28,7 +44,6 @@ def build_sam(arch='huge', checkpoint=None):
                              mbconv_expand_ratio=4.0,
                              local_conv_size=3,
                              layer_lr_decay=0.8)
-
     else:
         image_encoder = dict(type='ViTSAM',
                              arch=arch,
@@ -37,29 +52,25 @@ def build_sam(arch='huge', checkpoint=None):
                              out_channels=256,
                              use_abs_pos=True,
                              use_rel_pos=True,
-                             window_size=14),
+                             window_size=14)
     model = MODELS.build(
-        dict(
-            type='SAM',
-            image_encoder=image_encoder,
-            prompt_encoder=dict(type='PromptEncoder',
-                                embed_dim=256,
-                                image_embedding_size=(64, 64),
-                                input_image_size=(1024, 1024),
-                                mask_in_chans=16),
-            mask_decoder=dict(type='MaskDecoder',
-                              num_multimask_outputs=3,
-                              transformer=dict(type='TwoWayTransformer',
-                                               depth=2,
-                                               embedding_dim=256,
-                                               mlp_dim=2048,
-                                               num_heads=8),
-                              transformer_dim=256,
-                              iou_head_depth=3,
-                              iou_head_hidden_dim=256),
-            loss_decode=dict(type='mmseg.CrossEntropyLoss',
-                             avg_non_ignore=True),
-        ))
+        dict(type='SAM',
+             image_encoder=image_encoder,
+             prompt_encoder=dict(type='PromptEncoder',
+                                 embed_dim=256,
+                                 image_embedding_size=(64, 64),
+                                 input_image_size=(1024, 1024),
+                                 mask_in_chans=16),
+             mask_decoder=dict(type='MaskDecoder',
+                               num_multimask_outputs=3,
+                               transformer=dict(type='TwoWayTransformer',
+                                                depth=2,
+                                                embedding_dim=256,
+                                                mlp_dim=2048,
+                                                num_heads=8),
+                               transformer_dim=256,
+                               iou_head_depth=3,
+                               iou_head_hidden_dim=256)))
 
     if checkpoint is not None:
         model_url = checkpoint
@@ -68,3 +79,12 @@ def build_sam(arch='huge', checkpoint=None):
 
     load_checkpoint(model, model_url, strict=True)
     return model
+
+
+sam_model_registry = {
+    "default": build_sam_vit_h,
+    "vit_h": build_sam_vit_h,
+    "vit_l": build_sam_vit_l,
+    "vit_b": build_sam_vit_b,
+    "vit_t": build_sam_vit_t,
+}

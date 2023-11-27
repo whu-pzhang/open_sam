@@ -16,15 +16,25 @@ from mmengine.utils import (Timer, mkdir_or_exist, scandir,
 
 def collect_image_files(img_dir,
                         ann_dir,
+                        split=None,
                         img_suffix='.tif',
                         seg_map_suffix='.tif'):
     img_files = []
-    images_generator = scandir(img_dir, suffix=img_suffix, recursive=True)
-    for image_path in track_iter_progress(list(images_generator)):
-        image_path = Path(img_dir) / image_path
-        mask_path = Path(ann_dir) / (image_path.stem + seg_map_suffix)
 
-        img_files.append((image_path, mask_path))
+    if split is None:
+        images_generator = scandir(img_dir, suffix=img_suffix, recursive=True)
+        for image_path in track_iter_progress(list(images_generator)):
+            image_path = Path(img_dir) / image_path
+            mask_path = Path(ann_dir) / (image_path.stem + seg_map_suffix)
+
+            img_files.append((image_path, mask_path))
+    else:
+        img_ids = list_from_file(split)
+        for img_id in track_iter_progress(img_ids):
+            image_path = Path(img_dir) / f'img_id{img_suffix}'
+            mask_path = Path(ann_dir) / f'img_id{seg_map_suffix}'
+
+            img_files.append((image_path, mask_path))
 
     return img_files
 
@@ -78,7 +88,7 @@ def mask2coco(data_info, ignore_values=[0]):
             # for json encoding
             mask_rle['counts'] = mask_rle['counts'].decode()
             ann = dict(iscrowd=0,
-                       category_id=val - 1,
+                       category_id=val,
                        bbox=bbox.tolist(),
                        area=area.tolist(),
                        segmentation=mask_rle)
@@ -102,7 +112,7 @@ def cvt_to_coco_json(img_infos, classes):
     coco['annotations'] = []
     image_set = set()
 
-    for category_id, name in enumerate(classes):
+    for category_id, name in enumerate(classes, start=1):
         category_item = dict()
         category_item['supercategory'] = str('none')
         category_item['id'] = int(category_id)
@@ -138,13 +148,14 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description=
         'Convert semantic segmentation mask to coco format annotations')
-    parser.add_argument('img_path', help='The root path of images')
-    parser.add_argument('ann_path', help='The root path of images')
-    parser.add_argument('classes',
+    parser.add_argument('--img-path', help='The root path of images')
+    parser.add_argument('--ann-path', help='The root path of images')
+    parser.add_argument('--split', default=None, help='split text')
+    parser.add_argument('--classes',
                         type=str,
                         help='The text file name of storage class list')
     parser.add_argument(
-        'out',
+        '--out',
         type=str,
         help='The output annotation json file name, The save dir is in the '
         'same directory as img_path')
@@ -154,6 +165,10 @@ def parse_args():
         type=str,
         nargs='+',
         help='The suffix of images to be excluded, such as "png" and "bmp"')
+    parser.add_argument('--img-suffix', default='.jpg', help='image suffix')
+    parser.add_argument('--seg-map-suffix',
+                        default='.png',
+                        help='semantic segmentation map suffix')
     args = parser.parse_args()
     return args
 
@@ -164,7 +179,11 @@ def main():
         'json'), 'The output file name must be json suffix'
 
     # 1 load image list info
-    img_files = collect_image_files(args.img_path, args.ann_path)
+    img_files = collect_image_files(args.img_path,
+                                    args.ann_path,
+                                    split=args.split,
+                                    img_suffix=args.img_suffix,
+                                    seg_map_suffix=args.seg_map_suffix)
 
     # 2 convert to coco format data
     img_infos = collect_annotations(img_files, ignore_values=[0], nproc=4)
@@ -175,8 +194,8 @@ def main():
     save_dir = osp.join(args.img_path, '..', 'annotations')
     mkdir_or_exist(save_dir)
     save_path = osp.join(save_dir, args.out)
-    dump(coco_info, save_path)
     print(f'save json file: {save_path}')
+    dump(coco_info, save_path)
 
 
 if __name__ == '__main__':

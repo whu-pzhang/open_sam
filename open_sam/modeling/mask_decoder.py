@@ -11,6 +11,7 @@ from typing import List, Tuple
 import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
+from mmcv.cnn.bricks import build_activation_layer
 
 from open_sam.registry import MODELS
 from .common import LayerNorm2d
@@ -56,7 +57,7 @@ class MaskDecoder(nn.Module):
         self.num_mask_tokens = num_multimask_outputs + 1
         self.mask_tokens = nn.Embedding(self.num_mask_tokens, transformer_dim)
 
-        activation = MODELS.build(act_cfg)
+        activation = build_activation_layer(act_cfg)
         self.output_upscaling = nn.Sequential(
             nn.ConvTranspose2d(transformer_dim,
                                transformer_dim // 4,
@@ -138,7 +139,7 @@ class MaskDecoder(nn.Module):
             [self.iou_token.weight, self.mask_tokens.weight], dim=0)
         output_tokens = output_tokens.unsqueeze(0).expand(
             sparse_prompt_embeddings.size(0), -1, -1)
-        tokens = torch.cat((output_tokens, sparse_prompt_embeddings), dim=1)
+        tokens = torch.cat([output_tokens, sparse_prompt_embeddings], dim=1)
 
         # Expand per-image data in batch direction to be per-mask
         src = torch.repeat_interleave(image_embeddings, tokens.shape[0], dim=0)
@@ -152,6 +153,7 @@ class MaskDecoder(nn.Module):
         mask_tokens_out = hs[:, 1:(1 + self.num_mask_tokens), :]
 
         # Upscale mask embeddings and predict masks using the mask tokens
+        # B,N,C -> B,C,H,W
         src = src.transpose(1, 2).view(b, c, h, w)
         upscaled_embedding = self.output_upscaling(src)
         hyper_in_list: List[Tensor] = []
@@ -192,5 +194,5 @@ class MLP(nn.Module):
         for i, layer in enumerate(self.layers):
             x = F.relu(layer(x)) if i < self.num_layers - 1 else layer(x)
         if self.sigmoid_output:
-            x = F.sigmoid(x)
+            x = torch.sigmoid(x)
         return x
