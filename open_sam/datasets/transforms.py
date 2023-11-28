@@ -9,7 +9,9 @@ from torch.nn import functional as F
 from torchvision.transforms.functional import resize  # type: ignore
 from torchvision.transforms.functional import to_pil_image
 from mmcv.transforms import to_tensor, BaseTransform
-from mmengine.structures import PixelData, InstanceData
+from mmengine.structures import InstanceData
+
+from mmdet.structures.bbox import HorizontalBoxes
 from mmdet.structures.mask import BitmapMasks
 
 from open_sam.registry import TRANSFORMS
@@ -33,32 +35,34 @@ class GenerateSAMPrompt(BaseTransform):
     def transform(self, results):
         gt_seg_map = results.get('gt_seg_map', None)
         gt_masks = results.get('gt_masks', None)
+        gt_bboxes = results.get('gt_bboxes', None)
 
-        if gt_masks is not None:
-            propmts = self.generate_prompt_from_coco(
-                results, self.max_instances_per_classes,
-                self.points_per_instance)
-        elif gt_seg_map is not None:
-            propmts = self.generate_prompt_from_seg_map(
-                gt_seg_map, self.max_instances_per_classes,
-                self.points_per_instance, self.ignore_values)
+        assert (gt_bboxes is not None) or (gt_seg_map is not None)
+
+        if (gt_seg_map is not None) and (gt_bboxes is None):
+            results = self.segmap2instance(results)
+
+        prompts = self.generate_prompt(
+            results,
+            max_instances=self.max_instances_per_classes,
+            points_per_instance=self.points_per_instance)
 
         # 0:point, 1:box, 2:mask
-        propmts['prompt_type'] = random.choice(range(2))
-        results.update(propmts)
+        prompts['prompt_type'] = random.choice(range(2))
+        results.update(prompts)
         return results
 
     @staticmethod
-    def generate_prompt_from_seg_map(seg_map,
-                                     max_instances=15,
-                                     points_per_instance=2,
-                                     ignore_values=[0, 255]):
-        img_h, img_w = seg_map.shape[:2]
+    def segmap2instance(results, ignore_values=[0, 255]):
+        img_h, img_w = results['img_shape']
         gt_masks = []
-        boxes = []
-        point_coords = []
-        class_vals, counts = np.unique(seg_map, return_counts=True)
-        for val in class_vals:
+        gt_bboxes = []
+        gt_bboxes_labels = []
+
+        seg_map = results['gt_seg_map']
+        classes = np.unique(seg_map, return_inverse=False, return_counts=False)
+        for val in classes:
+            # remove ignored region
             if val in ignore_values:
                 continue
             cur_class_mask = (seg_map == val).astype(np.uint8)
@@ -68,51 +72,29 @@ class GenerateSAMPrompt(BaseTransform):
             num_objects, labels, stats, centroids = cv2.connectedComponentsWithStats(
                 cur_class_mask, connectivity=4)
 
-            try:
-                object_idxs = random.sample(range(1, num_objects),
-                                            k=max_instances)
-            except:
-                object_idxs = range(1, num_objects)
-
-            for i in object_idxs:
+            for i in range(1, num_objects):
                 cur_object = (labels == i)
                 box_x = stats[i, cv2.CC_STAT_LEFT]
                 box_y = stats[i, cv2.CC_STAT_TOP]
                 box_w = stats[i, cv2.CC_STAT_WIDTH]
                 box_h = stats[i, cv2.CC_STAT_HEIGHT]
 
-                # sample points
-                y, x = torch.meshgrid(torch.arange(0, img_h),
-                                      torch.arange(0, img_w))
-                x_idx = torch.masked_select(x, torch.as_tensor(cur_object))
-                y_idx = torch.masked_select(y, torch.as_tensor(cur_object))
-                if len(x_idx) < points_per_instance:
-                    continue
-                selected_idx = torch.randperm(
-                    x_idx.shape[0])[:points_per_instance]
-                # print(len(x_idx), len(selected_idx))
-                samples_x = x_idx[selected_idx].numpy()
-                samples_y = y_idx[selected_idx].numpy()
-                samples_xy = np.concatenate(
-                    [samples_x[:, None], samples_y[:, None]], axis=1)
-                point_coords.append(samples_xy)
-
-                # boxes
-                boxes.append(
+                # gt_bboxes
+                gt_bboxes.append(
                     [box_x, box_y, box_x + box_w - 1, box_y + box_h - 1])
-
+                gt_bboxes_labels.append(val)
                 # gt_mask_instance
                 gt_masks.append(cur_object.astype(np.uint8))
 
-        if len(gt_masks) == 0:
-            gt_masks, point_coords, boxes = None, None, None
-        else:
-            gt_masks = np.stack(gt_masks)
-            point_coords = np.stack(point_coords)
-            boxes = np.stack(boxes)
+        gt_masks = BitmapMasks(gt_masks, img_h, img_w)
+        gt_bboxes = HorizontalBoxes(gt_bboxes, in_mode='xyxy')
+        gt_bboxes_labels = np.array(gt_bboxes_labels)
 
-        out = dict(gt_masks=gt_masks, point_coords=point_coords, boxes=boxes)
-        return out
+        results['gt_masks'] = gt_masks
+        results['gt_bboxes'] = gt_bboxes
+        results['gt_bboxes_labels'] = gt_bboxes_labels
+
+        return results
 
     def generate_prompt_from_coco(self,
                                   results: dict,
@@ -127,7 +109,7 @@ class GenerateSAMPrompt(BaseTransform):
         point_coords = []
 
         object_idxs = list(range(len(bitmap_masks)))
-        random.shuffle(object_idxs)
+        # random.shuffle(object_idxs)
 
         num_objects = min(max_instances, len(bitmap_masks))
         # object_idxs = object_idxs[:num_objects]
@@ -163,23 +145,101 @@ class GenerateSAMPrompt(BaseTransform):
         gt_masks = np.stack(gt_masks)
         point_coords = np.stack(point_coords)
         boxes = np.stack(boxes)
-        out = dict(gt_masks=gt_masks, point_coords=point_coords, boxes=boxes)
+        out = dict(
+            gt_masks=gt_masks,
+            #    gt_bboxes=gt_bboxes,
+            boxes=boxes,
+            point_coords=point_coords)
         return out
 
-    def add_noise(self, prompt):
-        '''Boxes are taken as the ground truth mask’s bounding box,
+    def generate_prompt(self,
+                        results,
+                        max_instances: int = 15,
+                        points_per_instance: int = 2,
+                        bbox_noise_std: float = 0.1,
+                        max_bbox_offset: int = 20):
+        '''
+        First, with equal probability either a foreground point or bounding box
+        is selected randomly for the target mask. Points are sampled uniformly
+        from the ground truth mask.
+        Boxes are taken as the ground truth mask’s bounding box,
         with random noise added in each coordinate with standard deviation
         equal to 10% of the box sidelength, to a maximum of 20 pixels.
 
-        prompt is a dict:
-            gt_masks:
-            gt_bboxes: xyxy format
-            point_coords:
+        results is a dict:
+            gt_bboxes: BaseBoxes(N,4) xyxy format int type
+            gt_bboxes_labels: np.ndarray(N, )
+            gt_masks: BitmapMasks (H,W) uint8 type
+            gt_seg_map(optional): np.darray(H, W) float type
 
-        add key:
+        Added keys:
             boxes:
             masks:
+            point_coords
         '''
+        img_h, img_w = results['img_shape']
+        gt_masks_old = results.get('gt_masks', None)
+        gt_bboxes_old = results['gt_bboxes'].numpy()
+        if gt_masks_old is not None:
+            gt_masks_old = gt_masks_old.to_ndarray()
+            gt_masks = []
+            point_coords = []
+
+        #1. random select ground truth masks as prompt
+        num_gts = len(gt_bboxes_old)
+        max_num_objects = min(max_instances, num_gts)
+        random_selected_idx = np.random.choice(num_gts,
+                                               size=max_num_objects,
+                                               replace=False)
+
+        gt_bboxes = []
+        boxes = []
+        for idx in random_selected_idx:
+            # add noise to bbox
+            cur_bbox = gt_bboxes_old[idx]
+            gt_bboxes.append(cur_bbox)
+            w, h = cur_bbox[2] - cur_bbox[0], cur_bbox[3] - cur_bbox[1]
+            x_noise = np.random.normal(0, scale=w * bbox_noise_std, size=2)
+            y_noise = np.random.normal(0, scale=h * bbox_noise_std, size=2)
+            bbox_noise = np.array(
+                [x_noise[0], y_noise[0], x_noise[1], y_noise[1]])
+            bbox_noise = np.clip(bbox_noise, -max_bbox_offset, max_bbox_offset)
+            box = cur_bbox + bbox_noise
+            boxes.append(box)
+
+            if gt_masks_old is not None:
+                cur_mask = gt_masks_old[idx]
+                # sample points
+                y, x = torch.meshgrid(torch.arange(img_h), torch.arange(img_w))
+                x_idx = torch.masked_select(
+                    x, torch.as_tensor(cur_mask, dtype=torch.bool))
+                y_idx = torch.masked_select(
+                    y, torch.as_tensor(cur_mask, dtype=torch.bool))
+                if len(x_idx) < points_per_instance:
+                    continue
+                selected_idx = torch.randperm(
+                    x_idx.shape[0])[:points_per_instance]
+                # print(len(x_idx), len(selected_idx))
+                samples_x = x_idx[selected_idx].numpy()
+                samples_y = y_idx[selected_idx].numpy()
+                samples_xy = np.concatenate(
+                    [samples_x[:, None], samples_y[:, None]], axis=1)
+                point_coords.append(samples_xy)
+                gt_masks.append(cur_mask)
+
+        gt_bboxes = np.stack(gt_bboxes)
+        boxes = np.stack(boxes)
+        # clip
+        boxes[..., 0::2] = boxes[..., 0::2].clip(0, img_w)
+        boxes[..., 1::3] = boxes[..., 1::3].clip(0, img_h)
+        out = dict(gt_bboxes=gt_bboxes, boxes=boxes)
+
+        if gt_masks_old is not None:
+            gt_masks = np.stack(gt_masks)
+            point_coords = np.stack(point_coords)
+            out.update(gt_masks=gt_masks, point_coords=point_coords)
+
+        return out
 
 
 @TRANSFORMS.register_module()
@@ -377,12 +437,14 @@ class PackSamInputs(BaseTransform):
             point_labels = torch.ones(point_coords.shape[:2],
                                       dtype=torch.uint8)
             boxes = to_tensor(results['boxes'])
-            masks = to_tensor(results['gt_masks'].astype(np.int64))
+            gt_masks = to_tensor(results['gt_masks'].astype(np.int64))
+            gt_bboxes = to_tensor(results['gt_bboxes'])
 
             instance_data['boxes'] = boxes
             instance_data['point_coords'] = point_coords
             instance_data['point_labels'] = point_labels
-            instance_data['masks'] = masks
+            instance_data['gt_masks'] = gt_masks
+            instance_data['gt_bboxes'] = gt_bboxes
 
         # ---
         # print(len(boxes), len(point_coords), len(point_labels), len(masks))

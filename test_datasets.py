@@ -65,18 +65,19 @@ def vis_seg_dataset():
     train_pipeline = [
         dict(type='LoadImageFromFile'),
         dict(type='mmseg.LoadAnnotations'),
-        # dict(type='mmseg.RandomResize',
-        #      scale=(2048, 512),
-        #      ratio_range=(0.5, 2.0),
-        #      keep_ratio=True),
-        # dict(type='mmseg.RandomCrop', crop_size=(512, 512),
-        #      cat_max_ratio=0.75),
+        dict(type='mmseg.RandomResize',
+             scale=(2048, 512),
+             ratio_range=(0.5, 2.0),
+             keep_ratio=True),
+        dict(type='mmseg.RandomCrop', crop_size=(512, 512),
+             cat_max_ratio=0.75),
         # dict(type='mmseg.RandomFlip', prob=0.5),
         # dict(type='mmseg.PhotoMetricDistortion'),
-        dict(type='ResizeLongestEdge', scale=1024),
+        dict(type='ResizeLongestEdge', scale=800),
+        dict(type='mmdet.Pad', size=(800, 800), pad_val=0),
         dict(type='GenerateSAMPrompt',
-             max_instances_per_classes=5,
-             points_per_instance=1,
+             max_instances_per_classes=10,
+             points_per_instance=2,
              ignore_values=[0, 255]),
         # dict(type='ResizeLongestSide', target_length=1024),
         # dict(type='PackSamInputs'),
@@ -98,25 +99,25 @@ def vis_seg_dataset():
 
     ds = DATASETS.build(dataset)
 
-    sample = ds[100]
-    # print(sample['data_samples'].gt_instances)
-    # quit()
+    for sample in ds:
+        # print(sample['data_samples'].gt_instances)
+        # quit()
 
-    fig, ax = plt.subplots(1, 1, figsize=(10, 10))
-    ax.imshow(sample['img'])
-    for idx, mask in enumerate(sample['gt_masks']):
-        show_mask(mask, ax, random_color=True)
-    for box in sample['boxes']:
-        show_box(box, ax)
+        fig, ax = plt.subplots(1, 1, figsize=(10, 10))
+        ax.imshow(sample['img'][..., ::-1])
+        for idx, mask in enumerate(sample['gt_masks']):
+            show_mask(mask, ax, random_color=True)
+        for box in sample['boxes']:
+            show_box(box, ax)
 
-    point_coords = sample['point_coords']  # BxNx2
-    point_labels = np.ones(point_coords.shape[:2], dtype=np.uint8)  # BxN
-    show_points(point_coords, point_labels, ax, marker_size=200)
+        # point_coords = sample['point_coords']  # BxNx2
+        # point_labels = np.ones(point_coords.shape[:2], dtype=np.uint8)  # BxN
+        # show_points(point_coords, point_labels, ax, marker_size=200)
 
-    # ax.axis('off')
-    plt.tight_layout()
-    # plt.savefig('junk.jpg')
-    plt.show()
+        # ax.axis('off')
+        plt.tight_layout()
+        # plt.savefig('junk.jpg')
+        plt.show()
 
 
 def vis_coco_dataset():
@@ -125,6 +126,7 @@ def vis_coco_dataset():
     # data_root = 'data/HRSID_JPG/'
     dataset_type = 'mmdet.CocoDataset'
     # data_root = 'data/whu-building/cropped_aerial_data'
+    # metainfo = dict(classes=('building', ))
 
     data_root = 'D:/datasets/02-ObjectDet/nwpu'
     metainfo = dict(classes=('airplane', 'storage tank', 'baseball diamond',
@@ -136,8 +138,8 @@ def vis_coco_dataset():
         dict(type='LoadImageFromFile'),
         dict(type='mmdet.LoadAnnotations', with_bbox=True, with_mask=False),
         dict(type='mmdet.RandomFlip', prob=0.5),
-        # dict(type='PackDetInputs'),
         dict(type='ResizeLongestEdge', scale=1024),
+        dict(type='mmdet.Pad', size=(1024, 1024), pad_val=0),
         dict(type='GenerateSAMPrompt',
              max_instances_per_classes=10,
              points_per_instance=2),
@@ -162,16 +164,20 @@ def vis_coco_dataset():
     sample = ds[10]
 
     for sample in ds:
-        fig, ax = plt.subplots(1, 1, figsize=(10, 10))
+        fig, ax = plt.subplots(1, 1, figsize=(8, 8))
         ax.imshow(sample['img'][..., ::-1])
-        for idx, mask in enumerate(sample['gt_masks']):
-            show_mask(mask, ax, random_color=True)
+
+        if sample.get('gt_masks', None):
+            for idx, mask in enumerate(sample['gt_masks']):
+                show_mask(mask, ax, random_color=True)
         for box in sample['boxes']:
             show_box(box, ax)
 
-        point_coords = sample['point_coords']  # BxNx2
-        point_labels = np.ones(point_coords.shape[:2], dtype=np.uint8)  # BxN
-        show_points(point_coords, point_labels, ax, marker_size=200)
+        if sample.get('point_coords', None):
+            point_coords = sample['point_coords']  # BxNx2
+            point_labels = np.ones(point_coords.shape[:2],
+                                   dtype=np.uint8)  # BxN
+            show_points(point_coords, point_labels, ax, marker_size=200)
 
         # ax.axis('off')
         plt.tight_layout()

@@ -10,6 +10,7 @@ train_pipeline = [
     dict(type='mmdet.Resize', scale=(2048, 512), keep_ratio=True),
     dict(type='mmdet.RandomFlip', prob=0.5),
     dict(type='ResizeLongestEdge', scale=1024),
+    dict(type='mmdet.Pad', size=(1024, 1024), pad_val=0),
     dict(type='GenerateSAMPrompt',
          max_instances_per_classes=10,
          points_per_instance=2),

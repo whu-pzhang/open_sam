@@ -21,8 +21,6 @@ from open_sam.registry import MODELS
 from .mask_decoder import MaskDecoder
 from .prompt_encoder import PromptEncoder
 
-import matplotlib.pyplot as plt
-
 
 @MODELS.register_module()
 class SAM(BaseModel):
@@ -119,7 +117,7 @@ class SAM(BaseModel):
                 inputs.update(boxes=gt_instances.boxes.data)
 
             batched_inputs.append(inputs)
-            gt_samples.append(dict(gt_masks=gt_instances.masks.data))
+            gt_samples.append(dict(gt_masks=gt_instances.gt_masks.data))
 
         return batched_inputs, gt_samples
 

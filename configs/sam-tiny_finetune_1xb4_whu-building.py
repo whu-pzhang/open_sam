@@ -5,7 +5,7 @@ _base_ = [
 ]
 
 # training schedule
-train_cfg = dict(type='EpochBasedTrainLoop', max_epochs=12, val_interval=10)
+train_cfg = dict(type='EpochBasedTrainLoop', max_epochs=12, val_interval=12)
 val_cfg = dict(type='ValLoop')
 test_cfg = dict(type='TestLoop')
 
@@ -22,7 +22,7 @@ param_scheduler = [
 ]
 
 # optimizer
-optim_wrapper = dict(type='OptimWrapper',
+optim_wrapper = dict(type='AmpOptimWrapper',
                      optimizer=dict(type='Adam',
                                     lr=1e-4,
                                     betas=(0.9, 0.999),
