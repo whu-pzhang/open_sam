@@ -125,24 +125,25 @@ def vis_coco_dataset():
     # dataset_type = 'HRSIDDataset'
     # data_root = 'data/HRSID_JPG/'
     dataset_type = 'mmdet.CocoDataset'
-    # data_root = 'data/whu-building/cropped_aerial_data'
-    # metainfo = dict(classes=('building', ))
+    data_root = 'data/whu-building/cropped_aerial_data'
+    metainfo = dict(classes=('building', ))
 
-    data_root = 'D:/datasets/02-ObjectDet/nwpu'
-    metainfo = dict(classes=('airplane', 'storage tank', 'baseball diamond',
-                             'tennis court', 'basketball court',
-                             'ground track field', 'vehicle', 'harbor',
-                             'bridge', 'ship'), )
+    # data_root = 'D:/datasets/02-ObjectDet/nwpu'
+    # metainfo = dict(classes=('airplane', 'storage tank', 'baseball diamond',
+    #                          'tennis court', 'basketball court',
+    #                          'ground track field', 'vehicle', 'harbor',
+    #                          'bridge', 'ship'), )
 
     train_pipeline = [
         dict(type='LoadImageFromFile'),
-        dict(type='mmdet.LoadAnnotations', with_bbox=True, with_mask=False),
+        dict(type='mmdet.LoadAnnotations', with_bbox=True, with_mask=True),
         dict(type='mmdet.RandomFlip', prob=0.5),
         dict(type='ResizeLongestEdge', scale=1024),
         dict(type='mmdet.Pad', size=(1024, 1024), pad_val=0),
         dict(type='GenerateSAMPrompt',
              max_instances_per_classes=10,
              points_per_instance=2),
+        dict(type='PackSamInputs')
     ]
 
     dataset = dict(
@@ -151,10 +152,10 @@ def vis_coco_dataset():
         # ann_file='annotations/train2017.json',
         # data_prefix=dict(img='JPEGImages'),
         metainfo=metainfo,
-        # ann_file='annotations/whu-building_train.json',
-        # data_prefix=dict(img='train/image'),
-        ann_file='annotations/train.json',
-        data_prefix=dict(img='images'),
+        ann_file='annotations/whu-building_train.json',
+        data_prefix=dict(img='train/image'),
+        # ann_file='annotations/train.json',
+        # data_prefix=dict(img='images'),
         filter_cfg=dict(filter_empty_gt=True, min_size=32),
         pipeline=train_pipeline,
     )
@@ -163,17 +164,22 @@ def vis_coco_dataset():
 
     sample = ds[10]
 
+    data_samples = sample['data_samples']
+    print(data_samples.gt_instances.masks.shape)
+
+    quit()
+
     for sample in ds:
         fig, ax = plt.subplots(1, 1, figsize=(8, 8))
         ax.imshow(sample['img'][..., ::-1])
 
-        if sample.get('gt_masks', None):
+        if sample.get('gt_masks', None) is not None:
             for idx, mask in enumerate(sample['gt_masks']):
                 show_mask(mask, ax, random_color=True)
         for box in sample['boxes']:
             show_box(box, ax)
 
-        if sample.get('point_coords', None):
+        if sample.get('point_coords', None) is not None:
             point_coords = sample['point_coords']  # BxNx2
             point_labels = np.ones(point_coords.shape[:2],
                                    dtype=np.uint8)  # BxN

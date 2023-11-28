@@ -13,6 +13,7 @@ from torch import nn
 from torch.nn import functional as F
 
 from mmengine.model import BaseModel
+from mmengine.structures import InstanceData
 from mmseg.utils import OptConfigType, ConfigType
 from mmdet.models.utils import get_uncertain_point_coords_with_randomness
 from mmcv.ops import point_sample
@@ -96,43 +97,38 @@ class SAM(BaseModel):
 
     def _format_inputs(self, inputs, data_samples):
         '''
-        
-        batched_inputs: List[dict]
-        
+        batched_inputs: List[dict]  
         '''
         batched_inputs = []
-        gt_samples = []
         for idx, (img,
                   data_sample) in enumerate(zip(inputs['img'], data_samples)):
             metainfo = data_sample.metainfo
             prompt_type = metainfo['prompt_type']
-            gt_instances = data_samples[idx].gt_instances
+            prompt_instances = data_samples[idx].prompt_instances
 
             inputs = dict(image=img, original_size=metainfo['original_size'])
 
             if prompt_type == 0:
-                inputs.update(point_coords=gt_instances.point_coords.data,
-                              point_labels=gt_instances.point_labels.data)
+                inputs.update(point_coords=prompt_instances.point_coords,
+                              point_labels=prompt_instances.point_labels)
             elif prompt_type == 1:
-                inputs.update(boxes=gt_instances.boxes.data)
+                inputs.update(boxes=prompt_instances.boxes)
 
             batched_inputs.append(inputs)
-            gt_samples.append(dict(gt_masks=gt_instances.gt_masks.data))
 
-        return batched_inputs, gt_samples
+        return batched_inputs
 
     def forward(self,
                 inputs,
                 data_samples=None,
                 mode='loss',
                 multimask_output=False):
-        batched_inputs, data_samples = self._format_inputs(
-            inputs, data_samples)
+        batched_inputs = self._format_inputs(inputs, data_samples)
 
         if mode == 'loss':
             return self.loss(batched_inputs, data_samples)
         else:
-            return self.predict(batched_inputs, multimask_output)
+            return self.predict(batched_inputs, data_samples, multimask_output)
 
     def loss(self, batch_input, data_samples):
         low_res_logits, iou_predictions = self._forward(batch_input,
@@ -145,9 +141,9 @@ class SAM(BaseModel):
         for batch_idx, (logits, iou_scores) in enumerate(
                 zip(low_res_logits, iou_predictions)):
 
-            gt = data_samples[batch_idx]['gt_masks']
+            gt_masks = data_samples[batch_idx].gt_instances.masks
             high_res_logits = F.interpolate(logits,
-                                            size=gt.shape[-2:],
+                                            size=gt_masks.shape[-2:],
                                             mode='bilinear',
                                             align_corners=False)
 
@@ -162,14 +158,14 @@ class SAM(BaseModel):
                                                dim=1,
                                                index=idx)
 
-            num_total_masks = gt.size(0)
+            num_total_masks = gt_masks.size(0)
             # ===
             with torch.no_grad():
                 point_coords = get_uncertain_point_coords_with_randomness(
                     high_res_logits, None, self.num_points,
                     self.oversample_ratio, self.importance_sample_ratio)
                 mask_point_targets = point_sample(
-                    gt.unsqueeze(1).float(), point_coords).squeeze(1)
+                    gt_masks.unsqueeze(1).float(), point_coords).squeeze(1)
 
             mask_point_preds = point_sample(high_res_logits, point_coords)
 
@@ -196,10 +192,7 @@ class SAM(BaseModel):
 
         return loss_dict
 
-    def loss_by_single(self, mask_preds, gt_instances, img_metas):
-        pass
-
-    def predict(self, batch_input, multimask_output=False):
+    def predict(self, batch_input, batch_data_samples, multimask_output=False):
         pred_masks, iou_predictions = self._forward(batch_input,
                                                     multimask_output)
         outputs = []
@@ -218,7 +211,40 @@ class SAM(BaseModel):
                 'low_res_logits': low_res_mask,
             })
 
-        return outputs
+        batch_data_samples = self.add_pred_to_datasample(
+            batch_data_samples, outputs)
+
+        return batch_data_samples
+
+    def add_pred_to_datasample(self, data_samples, results_list):
+        """Add predictions to `SamDataSample`.
+
+        Args:
+            data_samples (list[:obj:`SamDataSample`], optional): A batch of
+                data samples that contain annotations and predictions.
+            results_list (list[:obj:`dict`]): sam results of each image.
+        """
+
+        for data_sample, pred_output in zip(data_samples, results_list):
+            pred_masks = pred_output['masks']  # B,num_masks,H,W
+            iou_scores = pred_output['iou_predictions']
+            num_masks = pred_masks.size(1)
+
+            if num_masks > 1:
+                idx = torch.argmax(pred_output['iou_predictions'])
+                iou_scores = iou_scores[:, idx]
+                pred_masks = pred_masks[:, idx]
+            else:
+                pred_masks = pred_masks.squeeze(1)
+                iou_scores = iou_scores
+
+            pred_instances = InstanceData()
+            pred_instances.masks = num_masks
+            pred_instances.scores = iou_scores
+
+            data_sample.pred_instances = pred_instances
+
+        return data_samples
 
     def _forward(
         self,
