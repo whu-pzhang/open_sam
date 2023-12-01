@@ -1,14 +1,11 @@
 # dataset
-dataset_type = 'mmdet.CocoDataset'
-data_root = 'data/whu-building/cropped_aerial_data'
-
-metainfo = dict(classes=('background', 'building'),
-                palette=[[0, 0, 0], [255, 255, 255]])
+dataset_type = 'mmdet.iSAIDDataset'
+data_root = 'data/iSAID_patches'
 
 train_pipeline = [
     dict(type='LoadImageFromFile'),
     dict(type='mmdet.LoadAnnotations', with_bbox=True, with_mask=True),
-    dict(type='mmdet.Resize', scale=(2048, 512), keep_ratio=True),
+    dict(type='mmdet.Resize', scale=(800, 800), keep_ratio=True),
     dict(type='mmdet.RandomFlip', prob=0.5),
     dict(type='ResizeLongestEdge', scale=1024),
     dict(
@@ -42,9 +39,8 @@ train_dataloader = dict(
     batch_sampler=dict(type='mmdet.AspectRatioBatchSampler'),
     dataset=dict(type=dataset_type,
                  data_root=data_root,
-                 metainfo=metainfo,
-                 ann_file='annotations/whu-building_train.json',
-                 data_prefix=dict(img='train/image'),
+                 ann_file='train/instancesonly_filtered_train.json',
+                 data_prefix=dict(img='train/images/'),
                  filter_cfg=dict(filter_empty_gt=True, min_size=32),
                  pipeline=train_pipeline))
 
@@ -55,9 +51,9 @@ val_dataloader = dict(batch_size=1,
                       dataset=dict(
                           type=dataset_type,
                           data_root=data_root,
-                          metainfo=metainfo,
-                          ann_file='annotations/whu-building_val.json',
-                          data_prefix=dict(img='val/image'),
+                          ann_file='val/instancesonly_filtered_val.json',
+                          data_prefix=dict(img='val/images/'),
+                          test_mode=True,
                           filter_cfg=dict(filter_empty_gt=True),
                           pipeline=test_pipeline))
 test_dataloader = val_dataloader

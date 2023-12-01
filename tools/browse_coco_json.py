@@ -18,7 +18,7 @@ def show_coco_json(args):
     categories = coco.loadCats(coco.getCatIds())
     category_names = [category['name'] for category in categories]
     print(f'Total number of Categories : {len(category_names)}')
-    print('Categories: \n{}\n'.format(' '.join(category_names)))
+    print('Categories: \n{}\n'.format(', '.join(category_names)))
 
     if args.category_names is None:
         category_ids = []

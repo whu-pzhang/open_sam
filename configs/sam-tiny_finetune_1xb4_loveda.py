@@ -1,11 +1,11 @@
 _base_ = [
-    './_base_/datasets/whu-building_coco.py',
+    './_base_/datasets/loveda_coco.py',
     './_base_/default_runtime.py',
     './_base_/models/sam_tiny.py',
 ]
 
 # training schedule
-train_cfg = dict(type='EpochBasedTrainLoop', max_epochs=12, val_interval=1)
+train_cfg = dict(type='EpochBasedTrainLoop', max_epochs=12, val_interval=2)
 val_cfg = dict(type='ValLoop')
 test_cfg = dict(type='TestLoop')
 
@@ -29,6 +29,6 @@ optim_wrapper = dict(type='AmpOptimWrapper',
                                     eps=1e-08,
                                     weight_decay=0))
 
-default_hooks = dict(checkpoint=dict(interval=1, max_keep_ckpts=2))
+default_hooks = dict(checkpoint=dict(interval=2, max_keep_ckpts=2))
 
 randomness = dict(seed=3407)

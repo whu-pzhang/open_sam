@@ -1,3 +1,5 @@
+from functools import partial
+
 import cv2
 import numpy as np
 import torch
@@ -6,6 +8,10 @@ import matplotlib.pyplot as plt
 from mmcv.transforms import Resize
 from mmdet.datasets.transforms import LoadAnnotations
 from mmdet.structures.mask import BitmapMasks
+from mmengine.dataset import DefaultSampler, worker_init_fn
+from mmengine.dist import (collect_results, get_dist_info, get_rank, init_dist,
+                           is_distributed)
+from torch.utils.data import DataLoader, Dataset
 
 from open_sam.registry import MODELS, DATASETS, TRANSFORMS
 from open_sam.utils import register_all_modules
@@ -80,7 +86,7 @@ def vis_seg_dataset():
              points_per_instance=2,
              ignore_values=[0, 255]),
         # dict(type='ResizeLongestSide', target_length=1024),
-        # dict(type='PackSamInputs'),
+        dict(type='PackSamInputs'),
     ]
 
     dataset = dict(
@@ -98,6 +104,13 @@ def vis_seg_dataset():
         pipeline=train_pipeline)
 
     ds = DATASETS.build(dataset)
+
+    sample = ds[10]
+
+    data_samples = sample['data_samples']
+    print(data_samples)
+
+    quit()
 
     for sample in ds:
         # print(sample['data_samples'].gt_instances)
@@ -125,25 +138,37 @@ def vis_coco_dataset():
     # dataset_type = 'HRSIDDataset'
     # data_root = 'data/HRSID_JPG/'
     dataset_type = 'mmdet.CocoDataset'
+    # whu-building
     data_root = 'data/whu-building/cropped_aerial_data'
-    metainfo = dict(classes=('building', ))
+    metainfo = dict(classes=('background', 'building'),
+                    palette=([0, 0, 0], [255, 255, 255]))
 
+    # nwpu
     # data_root = 'D:/datasets/02-ObjectDet/nwpu'
     # metainfo = dict(classes=('airplane', 'storage tank', 'baseball diamond',
     #                          'tennis court', 'basketball court',
     #                          'ground track field', 'vehicle', 'harbor',
     #                          'bridge', 'ship'), )
+    # # loveda
+    data_root = 'data/loveDA'
+    metainfo = dict(classes=('background', 'building', 'road', 'water',
+                             'barren', 'forest', 'agricultural'),
+                    palette=[[255, 255, 255], [255, 0, 0], [255, 255, 0],
+                             [0, 0, 255], [159, 129, 183], [0, 255, 0],
+                             [255, 195, 128]])
 
     train_pipeline = [
         dict(type='LoadImageFromFile'),
         dict(type='mmdet.LoadAnnotations', with_bbox=True, with_mask=True),
-        dict(type='mmdet.RandomFlip', prob=0.5),
         dict(type='ResizeLongestEdge', scale=1024),
-        dict(type='mmdet.Pad', size=(1024, 1024), pad_val=0),
-        dict(type='GenerateSAMPrompt',
-             max_instances_per_classes=10,
-             points_per_instance=2),
-        dict(type='PackSamInputs')
+        dict(
+            type='GenerateSAMPrompt',
+            #  prompt_type=['point', 'boxes'],
+            prompt_type='boxes',
+            max_instances_per_classes=10,
+            points_per_instance=2,
+            noise_cfg=None),
+        # dict(type='PackSamInputs')
     ]
 
     dataset = dict(
@@ -152,32 +177,35 @@ def vis_coco_dataset():
         # ann_file='annotations/train2017.json',
         # data_prefix=dict(img='JPEGImages'),
         metainfo=metainfo,
-        ann_file='annotations/whu-building_train.json',
-        data_prefix=dict(img='train/image'),
+        # ann_file='annotations/whu-building_train.json',
+        # data_prefix=dict(img='train/image'),
         # ann_file='annotations/train.json',
         # data_prefix=dict(img='images'),
+        ann_file='annotations/loveda_train.json',
+        data_prefix=dict(img='img_dir/train'),
         filter_cfg=dict(filter_empty_gt=True, min_size=32),
         pipeline=train_pipeline,
     )
+    coco_dataset = DATASETS.build(dataset)
 
-    ds = DATASETS.build(dataset)
+    sample = coco_dataset[10]
 
-    sample = ds[10]
+    # data_samples = sample['data_samples']
+    # print(data_samples)
 
-    data_samples = sample['data_samples']
-    print(data_samples.gt_instances.masks.shape)
+    # quit()
 
-    quit()
-
-    for sample in ds:
+    for sample in coco_dataset:
         fig, ax = plt.subplots(1, 1, figsize=(8, 8))
         ax.imshow(sample['img'][..., ::-1])
 
         if sample.get('gt_masks', None) is not None:
             for idx, mask in enumerate(sample['gt_masks']):
                 show_mask(mask, ax, random_color=True)
-        for box in sample['boxes']:
-            show_box(box, ax)
+
+        if sample.get('boxes', None) is not None:
+            for box in sample['boxes']:
+                show_box(box, ax)
 
         if sample.get('point_coords', None) is not None:
             point_coords = sample['point_coords']  # BxNx2

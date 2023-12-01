@@ -1,11 +1,3 @@
-# Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
-
-# This source code is licensed under the license found in the
-# LICENSE file in the root directory of this source tree.
-
-# Borrowed from https://github.com/facebookresearch/segment-anything
-
 from typing import Any, Optional, Tuple, Type
 
 import numpy as np
@@ -17,16 +9,14 @@ from .common import LayerNorm2d
 
 
 @MODELS.register_module()
-class PromptEncoder(nn.Module):
+class SAMPromptEncoder(nn.Module):
 
-    def __init__(
-        self,
-        embed_dim: int,
-        image_embedding_size: Tuple[int, int],
-        input_image_size: Tuple[int, int],
-        mask_in_chans: int,
-        activation: Type[nn.Module] = nn.GELU,
-    ) -> None:
+    def __init__(self,
+                 embed_dim: int,
+                 image_embedding_size: Tuple[int, int],
+                 input_image_size: Tuple[int, int],
+                 mask_in_chans: int,
+                 activation: Type[nn.Module] = nn.GELU) -> None:
         """Encodes prompts for input to SAM's mask decoder.
 
         Arguments:
@@ -87,15 +77,24 @@ class PromptEncoder(nn.Module):
 
     def _embed_points(self, points: torch.Tensor, labels: torch.Tensor,
                       pad: bool) -> torch.Tensor:
-        """Embeds point prompts."""
+        """Embeds point prompts.
+        
+        Args:
+            points: image_batch_size, point_batch_size, num_points_per_image, 2
+            labels: image_batch_size, point_batch_size, 1
+        
+        """
         points = points + 0.5  # Shift to center of pixel
         if pad:
-            padding_point = torch.zeros((points.shape[0], 1, 2),
+            target_point_shape = (points.shape[0], points.shape[1], 1, 2)
+            target_labels_shape = (points.shape[0], points.shape[1], 1)
+            padding_point = torch.zeros(target_point_shape,
                                         device=points.device)
-            padding_label = -torch.ones(
-                (labels.shape[0], 1), device=labels.device)
-            points = torch.cat([points, padding_point], dim=1)
-            labels = torch.cat([labels, padding_label], dim=1)
+            padding_label = -torch.ones(target_labels_shape,
+                                        device=labels.device)
+            points = torch.cat([points, padding_point], dim=2)
+            labels = torch.cat([labels, padding_label], dim=2)
+
         point_embedding = self.pe_layer.forward_with_coords(
             points, self.input_image_size)
         point_embedding[labels == -1] = 0.0

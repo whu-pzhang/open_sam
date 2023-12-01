@@ -1,5 +1,5 @@
 from copy import deepcopy
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union, Sequence
 import random
 
 import cv2
@@ -9,6 +9,7 @@ from torch.nn import functional as F
 from torchvision.transforms.functional import resize  # type: ignore
 from torchvision.transforms.functional import to_pil_image
 from mmcv.transforms import to_tensor, BaseTransform
+import mmengine
 from mmengine.structures import InstanceData
 
 from mmdet.structures.bbox import HorizontalBoxes, BaseBoxes
@@ -24,18 +25,52 @@ class GenerateSAMPrompt(BaseTransform):
     prompt_types = ('point', 'boxes', 'masks')
 
     def __init__(self,
+                 prompt_type=['point', 'boxes'],
                  max_instances_per_classes=15,
                  points_per_instance=2,
+                 noise_cfg=dict(bbox_std_ratio=0.1, bbox_max_offset=20),
                  ignore_values=[255]):
+        valid_prompts = ['point', 'boxes']
+
+        if isinstance(prompt_type, str):
+            assert prompt_type in valid_prompts
+            prompt_type = [prompt_type]
+        elif isinstance(prompt_type, list):
+            assert mmengine.is_list_of(prompt_type, str)
+            assert set(prompt_type).issubset(set(valid_prompts))
+        else:
+            raise ValueError(f'prompt_type must be either str or list of str, \
+                               but got `{type(prompt_type)}`.')
+        self.prompt_type = prompt_type
 
         self.max_instances_per_classes = max_instances_per_classes
         self.points_per_instance = points_per_instance
         self.ignore_values = ignore_values
+        self.noise_cfg = noise_cfg
+
+    @property
+    def add_noise(self):
+        return self.noise_cfg is not None
+
+    @property
+    def with_boxes(self):
+        return 'boxes' in self.prompt_type
+
+    @property
+    def with_point(self):
+        return ('point' in self.prompt_type) and self.has_masks
+
+    @property
+    def has_masks(self):
+        return self._has_masks or self._has_seg_map
 
     def transform(self, results):
         gt_seg_map = results.get('gt_seg_map', None)
         gt_masks = results.get('gt_masks', None)
         gt_bboxes = results.get('gt_bboxes', None)
+
+        self._has_masks = gt_masks is not None
+        self._has_seg_map = gt_seg_map is not None
 
         assert (gt_bboxes is not None) or (gt_seg_map is not None)
 
@@ -45,10 +80,11 @@ class GenerateSAMPrompt(BaseTransform):
         prompts = self.generate_prompt(
             results,
             max_instances=self.max_instances_per_classes,
-            points_per_instance=self.points_per_instance)
+            points_per_instance=self.points_per_instance,
+            noise_cfg=self.noise_cfg)
 
         # 0:point, 1:box, 2:mask
-        prompts['prompt_type'] = random.choice(range(2))
+        prompts['prompt_type'] = random.choice(self.prompt_type)
         results.update(prompts)
         return results
 
@@ -94,14 +130,16 @@ class GenerateSAMPrompt(BaseTransform):
         results['gt_bboxes'] = gt_bboxes
         results['gt_bboxes_labels'] = gt_bboxes_labels
 
+        # add img_id for seg dataset
+        results['img_id'] = results['sample_idx']
+
         return results
 
     def generate_prompt(self,
                         results,
                         max_instances: int = 15,
                         points_per_instance: int = 2,
-                        bbox_noise_std: float = 0.1,
-                        max_bbox_offset: int = 20):
+                        noise_cfg: dict = None):
         '''
         First, with equal probability either a foreground point or bounding box
         is selected randomly for the target mask. Points are sampled uniformly
@@ -125,10 +163,15 @@ class GenerateSAMPrompt(BaseTransform):
         gt_masks_old = results.get('gt_masks', None)
         gt_bboxes_old = results['gt_bboxes'].numpy()
         gt_bboxes_labels_old = results['gt_bboxes_labels']
-        if gt_masks_old is not None:
-            gt_masks_old = gt_masks_old.to_ndarray()
+        if self.has_masks:
+            gt_masks_old = results['gt_masks'].to_ndarray()
             gt_masks = []
-            point_coords = []
+            if self.with_point:
+                point_coords = []
+
+        if self.add_noise:
+            bbox_std_ratio = noise_cfg['bbox_std_ratio']
+            bbox_max_offset = noise_cfg['bbox_max_offset']
 
         #1. random select ground truth masks as prompt
         num_gts = len(gt_bboxes_old)
@@ -137,27 +180,39 @@ class GenerateSAMPrompt(BaseTransform):
                                                size=max_num_objects,
                                                replace=False)
 
-        gt_bboxes = []
-        gt_bboxes_labels = []
-        boxes = []
+        if self.with_boxes:
+            gt_bboxes = []
+            gt_bboxes_labels = []
+            boxes = []
+
         for idx in random_selected_idx:
-            # add noise to bbox
-            cur_bbox = gt_bboxes_old[idx]
-            cur_label = gt_bboxes_labels_old[idx]
-            gt_bboxes.append(cur_bbox)
-            gt_bboxes_labels.append(cur_label)
+            if self.with_boxes:
+                # add noise to bbox
+                cur_bbox = gt_bboxes_old[idx]
+                cur_label = gt_bboxes_labels_old[idx]
+                gt_bboxes.append(cur_bbox)
+                gt_bboxes_labels.append(cur_label)
 
-            w, h = cur_bbox[2] - cur_bbox[0], cur_bbox[3] - cur_bbox[1]
-            x_noise = np.random.normal(0, scale=w * bbox_noise_std, size=2)
-            y_noise = np.random.normal(0, scale=h * bbox_noise_std, size=2)
-            bbox_noise = np.array(
-                [x_noise[0], y_noise[0], x_noise[1], y_noise[1]])
-            bbox_noise = np.clip(bbox_noise, -max_bbox_offset, max_bbox_offset)
-            box = cur_bbox + bbox_noise
-            boxes.append(box)
+                if self.add_noise:
+                    w, h = cur_bbox[2] - cur_bbox[0], cur_bbox[3] - cur_bbox[1]
+                    x_noise = np.random.normal(0,
+                                               scale=w * bbox_std_ratio,
+                                               size=2)
+                    y_noise = np.random.normal(0,
+                                               scale=h * bbox_std_ratio,
+                                               size=2)
+                    bbox_noise = np.array(
+                        [x_noise[0], y_noise[0], x_noise[1], y_noise[1]])
+                    bbox_noise = np.clip(bbox_noise, -bbox_max_offset,
+                                         bbox_max_offset)
+                    box = cur_bbox + bbox_noise
+                    boxes.append(box)
+                else:
+                    boxes.append(cur_bbox)
 
-            if gt_masks_old is not None:
-                cur_mask = gt_masks_old[idx]
+            cur_mask = gt_masks_old[idx]
+            gt_masks.append(cur_mask)
+            if self.with_point:
                 # sample points
                 y, x = torch.meshgrid(torch.arange(img_h), torch.arange(img_w))
                 x_idx = torch.masked_select(
@@ -174,22 +229,25 @@ class GenerateSAMPrompt(BaseTransform):
                 samples_xy = np.concatenate(
                     [samples_x[:, None], samples_y[:, None]], axis=1)
                 point_coords.append(samples_xy)
-                gt_masks.append(cur_mask)
 
-        gt_bboxes = np.array(gt_bboxes, dtype=np.float32)
-        gt_bboxes_labels = np.array(gt_bboxes_labels, dtype=np.int64)
-        boxes = np.array(boxes, dtype=np.float32)
-        # clip
-        boxes[..., 0::2] = boxes[..., 0::2].clip(0, img_w)
-        boxes[..., 1::3] = boxes[..., 1::3].clip(0, img_h)
-        out = dict(gt_bboxes=gt_bboxes,
-                   gt_bboxes_labels=gt_bboxes_labels,
-                   boxes=boxes)
+        out = dict()
+        gt_masks = np.stack(gt_masks)
+        out.update(gt_masks=gt_masks)
 
-        if gt_masks_old is not None:
-            gt_masks = np.stack(gt_masks)
+        if self.with_boxes:
+            gt_bboxes = np.array(gt_bboxes, dtype=np.float32)
+            gt_bboxes_labels = np.array(gt_bboxes_labels, dtype=np.int64)
+            boxes = np.array(boxes, dtype=np.float32)
+            # clip
+            boxes[..., 0::2] = boxes[..., 0::2].clip(0, img_w)
+            boxes[..., 1::3] = boxes[..., 1::3].clip(0, img_h)
+            out.update(gt_bboxes=gt_bboxes,
+                       gt_bboxes_labels=gt_bboxes_labels,
+                       boxes=boxes)
+
+        if self.with_point:
             point_coords = np.stack(point_coords)
-            out.update(gt_masks=gt_masks, point_coords=point_coords)
+            out.update(point_coords=point_coords)
 
         return out
 
@@ -349,30 +407,48 @@ class PackSamInputs(BaseTransform):
     }
 
     def __init__(self,
-                 meta_keys=('img_path', 'seg_map_path', 'ori_shape',
-                            'img_shape', 'pad_shape', 'scale_factor', 'flip',
-                            'flip_direction', 'reduce_zero_label')):
-        self.meta_keys = meta_keys
+                 meta_keys: Optional[dict] = None,
+                 default_meta_keys=('img_id', 'img_path', 'ori_shape',
+                                    'img_shape', 'scale_factor', 'flip',
+                                    'flip_direction', 'reduce_zero_label')):
+        self.meta_keys = default_meta_keys
+        if meta_keys is not None:
+            if isinstance(meta_keys, str):
+                meta_keys = (meta_keys, )
+            else:
+                assert isinstance(meta_keys, tuple), \
+                    'meta_keys must be str or tuple'
+            self.meta_keys += meta_keys
 
     def transform(self, results):
         packed_results = dict()
         if 'img' in results:
             img = results['img']
 
-            inputs = dict()
             if len(img.shape) < 3:
                 img = np.expand_dims(img, -1)
+            # To improve the computational speed by by 3-5 times, apply:
+            # If image is not contiguous, use
+            # `numpy.transpose()` followed by `numpy.ascontiguousarray()`
+            # If image is already contiguous, use
+            # `torch.permute()` followed by `torch.contiguous()`
+            # Refer to https://github.com/open-mmlab/mmdetection/pull/9533
+            # for more details
             if not img.flags.c_contiguous:
                 img = to_tensor(np.ascontiguousarray(img.transpose(2, 0, 1)))
             else:
-                img = img.transpose(2, 0, 1)
-                img = to_tensor(img).contiguous()
+                img = to_tensor(img).permute(2, 0, 1).contiguous()
 
-            inputs['img'] = img
+            # inputs['img'] = img
+            packed_results['inputs'] = img
 
+        # 2. Pack InstanceData
         data_sample = SamDataSample()
         gt_instance = InstanceData()
         prompt_instance = InstanceData()
+
+        assert 'img_id' in results, "'img_id' must contained in the results "
+        'for counting the number of images'
 
         for key in self.mapping_table.keys():
             if key not in results:
@@ -382,8 +458,7 @@ class PackSamInputs(BaseTransform):
             else:
                 gt_instance[self.mapping_table[key]] = to_tensor(results[key])
 
-        gt_masks = results.get('gt_masks', None)
-        if gt_masks is not None:
+        if results.get('point_coords', None) is not None:
             point_coords = to_tensor(results['point_coords'])
             point_labels = torch.ones(point_coords.shape[:2],
                                       dtype=torch.uint8)
@@ -398,13 +473,14 @@ class PackSamInputs(BaseTransform):
         data_sample.gt_instances = gt_instance
         data_sample.prompt_instances = prompt_instance
         # ---
-
+        # 3. Pack img_meta
         img_meta = dict(prompt_type=results['prompt_type'],
                         original_size=results['img_shape'])
-
+        for key in self.meta_keys:
+            if key in results:
+                img_meta[key] = results[key]
         data_sample.set_metainfo(img_meta)
 
-        packed_results['inputs'] = inputs
         packed_results['data_samples'] = data_sample
 
         return packed_results

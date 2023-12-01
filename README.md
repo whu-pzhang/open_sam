@@ -51,12 +51,19 @@ with clutter
 
 ## Finetune SAM
 
-### whu-building
 
-| Model    | Prompt Type | Style             | background | building | mIoU  |
-| -------- | ----------- | ----------------- | ---------- | -------- | ----- |
-| SAM-Tiny | boxes       | Zero-shot         | 97.97      | 85.09    | 91.53 |
-| SAM-Tiny | boxes       | Finetune(decoder) | 98.44      | 87.88    | 93.16 |
+| Model    | Prompt Type | Style             | whu-building | loveda | potsdam | Epoch |
+| -------- | ----------- | ----------------- | ------------ | ------ | ------- | ----- |
+| SAM-Tiny | boxes       | Finetune(decoder) | 93.24        |        |         |       |
+
+
+性能对比
+
+| Model    | Finetune dataset | whu-building | loveda | potsdam | Epoch |
+| -------- | ---------------- | ------------ | ------ | ------- | ----- |
+| SAM-tiny | whu-building     | 93.5         | 58.26  | 68.94   | 2     |
+| SAM-tiny | loveda           | 91.71        | 57.20  | 62.34   | 12    |
+| SAM-tiny | potsdam          | 90.73        | 59.23  | 72.86   | 12    |
 
 
 ## Acknowledgement

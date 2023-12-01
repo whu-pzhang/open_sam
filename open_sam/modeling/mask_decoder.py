@@ -1,12 +1,4 @@
-# Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
-
-# This source code is licensed under the license found in the
-# LICENSE file in the root directory of this source tree.
-
-# Borrowed from https://github.com/facebookresearch/segment-anything
-
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 
 import torch
 from torch import Tensor, nn
@@ -20,16 +12,14 @@ from .common import LayerNorm2d
 @MODELS.register_module()
 class MaskDecoder(nn.Module):
 
-    def __init__(
-        self,
-        *,
-        transformer_dim: int,
-        transformer: dict,
-        num_multimask_outputs: int = 3,
-        act_cfg: dict = dict(type='GELU'),
-        iou_head_depth: int = 3,
-        iou_head_hidden_dim: int = 256,
-    ) -> None:
+    def __init__(self,
+                 *,
+                 transformer_dim: int,
+                 transformer: dict,
+                 num_multimask_outputs: int = 3,
+                 act_cfg: dict = dict(type='GELU'),
+                 iou_head_depth: int = 3,
+                 iou_head_hidden_dim: int = 256) -> None:
         """Predicts masks given an image and prompt embeddings, using a
         tranformer architecture.
 
@@ -52,9 +42,9 @@ class MaskDecoder(nn.Module):
         self.transformer = MODELS.build(transformer)
 
         self.num_multimask_outputs = num_multimask_outputs
+        self.num_mask_tokens = num_multimask_outputs + 1
 
         self.iou_token = nn.Embedding(1, transformer_dim)
-        self.num_mask_tokens = num_multimask_outputs + 1
         self.mask_tokens = nn.Embedding(self.num_mask_tokens, transformer_dim)
 
         activation = build_activation_layer(act_cfg)
@@ -62,15 +52,12 @@ class MaskDecoder(nn.Module):
             nn.ConvTranspose2d(transformer_dim,
                                transformer_dim // 4,
                                kernel_size=2,
-                               stride=2),
-            LayerNorm2d(transformer_dim // 4),
+                               stride=2), LayerNorm2d(transformer_dim // 4),
             activation,
             nn.ConvTranspose2d(transformer_dim // 4,
                                transformer_dim // 8,
                                kernel_size=2,
-                               stride=2),
-            activation,
-        )
+                               stride=2), activation)
         self.output_hypernetworks_mlps = nn.ModuleList([
             MLP(transformer_dim, transformer_dim, transformer_dim // 8, 3)
             for i in range(self.num_mask_tokens)
@@ -80,34 +67,48 @@ class MaskDecoder(nn.Module):
                                        self.num_mask_tokens, iou_head_depth)
 
     def forward(
-        self,
-        image_embeddings: Tensor,
-        image_pe: Tensor,
-        sparse_prompt_embeddings: Tensor,
-        dense_prompt_embeddings: Tensor,
-        multimask_output: bool,
-    ) -> Tuple[Tensor, Tensor]:
+            self,
+            image_embeddings: Tensor,
+            image_positional_embeddings: Tensor,
+            sparse_prompt_embeddings: Tensor,
+            dense_prompt_embeddings: Tensor,
+            multimask_output: bool,
+            output_attentions: Optional[bool] = None,
+            attention_similarity: torch.Tensor = None,
+            target_embedding: torch.Tensor = None) -> Tuple[Tensor, Tensor]:
         """Predict masks given image and prompt embeddings.
 
         Borrowed from https://github.com/facebookresearch/segment-anything
 
         Arguments:
-          image_embeddings (Tensor): the embeddings from the image encoder
-          image_pe (Tensor): positional encoding with the shape of
-            image_embeddings
-          sparse_prompt_embeddings (Tensor): the embeddings of
-            the points and boxes
-          dense_prompt_embeddings (Tensor): the embeddings of the mask inputs
-          multimask_output (bool): Whether to return multiple masks or a single
-            mask.
+            image_embeddings (Tensor): the embeddings from the image encoder
+            image_positional_embeddings (Tensor): positional encoding with 
+                the shape of image_embeddings
+            sparse_prompt_embeddings (Tensor): the embeddings of
+                the points and boxes
+            dense_prompt_embeddings (Tensor): the embeddings of the mask inputs
+            multimask_output (bool): Whether to return multiple masks or
+                a single mask.
+            output_attentions (bool, *optional*):
+                Whether or not to return the attentions tensors of all
+                attention layers.
 
         Returns:
           Tensor: batched predicted masks
           Tensor: batched predictions of mask quality
         """
+        # batch_size, num_channels, height, width = image_embeddings.shape
+        # point_batch_size = sparse_prompt_embeddings.shape[1]
+
+        # # Concatenate output tokens
+        # output_tokens = torch.cat(
+        #     [self.iou_token.weight, self.mask_tokens.weight], dim=0)
+        # output_tokens = output_tokens.repeat(batch_size, point_batch_size, 1,
+        #                                      1)
+
         masks, iou_pred = self.predict_masks(
             image_embeddings=image_embeddings,
-            image_pe=image_pe,
+            image_pe=image_positional_embeddings,
             sparse_prompt_embeddings=sparse_prompt_embeddings,
             dense_prompt_embeddings=dense_prompt_embeddings,
         )

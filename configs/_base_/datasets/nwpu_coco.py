@@ -22,7 +22,17 @@ train_pipeline = [
     dict(type='PackSamInputs'),
 ]
 
-test_pipeline = []
+test_pipeline = [
+    dict(type='LoadImageFromFile'),
+    dict(type='mmdet.LoadAnnotations', with_bbox=True, with_mask=False),
+    dict(type='ResizeLongestEdge', scale=1024),
+    dict(type='GenerateSAMPrompt',
+         prompt_type='boxes',
+         noise_cfg=None,
+         max_instances_per_classes=10,
+         points_per_instance=2),
+    dict(type='PackSamInputs'),
+]
 
 train_dataloader = dict(
     batch_size=4,

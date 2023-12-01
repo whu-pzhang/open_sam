@@ -1,9 +1,11 @@
 # dataset
 dataset_type = 'mmdet.CocoDataset'
-data_root = 'data/whu-building/cropped_aerial_data'
+data_root = 'data/Potsdam'
 
-metainfo = dict(classes=('background', 'building'),
-                palette=[[0, 0, 0], [255, 255, 255]])
+metainfo = dict(classes=('impervious_surface', 'building', 'low_vegetation',
+                         'tree', 'car', 'clutter'),
+                palette=[[255, 255, 255], [0, 0, 255], [0, 255, 255],
+                         [0, 255, 0], [255, 255, 0], [255, 0, 0]])
 
 train_pipeline = [
     dict(type='LoadImageFromFile'),
@@ -43,8 +45,8 @@ train_dataloader = dict(
     dataset=dict(type=dataset_type,
                  data_root=data_root,
                  metainfo=metainfo,
-                 ann_file='annotations/whu-building_train.json',
-                 data_prefix=dict(img='train/image'),
+                 ann_file='annotations/potsdam_train.json',
+                 data_prefix=dict(img='img_dir/train'),
                  filter_cfg=dict(filter_empty_gt=True, min_size=32),
                  pipeline=train_pipeline))
 
@@ -52,14 +54,13 @@ val_dataloader = dict(batch_size=1,
                       num_workers=4,
                       persistent_workers=True,
                       sampler=dict(type='DefaultSampler', shuffle=False),
-                      dataset=dict(
-                          type=dataset_type,
-                          data_root=data_root,
-                          metainfo=metainfo,
-                          ann_file='annotations/whu-building_val.json',
-                          data_prefix=dict(img='val/image'),
-                          filter_cfg=dict(filter_empty_gt=True),
-                          pipeline=test_pipeline))
+                      dataset=dict(type=dataset_type,
+                                   data_root=data_root,
+                                   metainfo=metainfo,
+                                   ann_file='annotations/potsdam_val.json',
+                                   data_prefix=dict(img='img_dir/val'),
+                                   filter_cfg=dict(filter_empty_gt=True),
+                                   pipeline=test_pipeline))
 test_dataloader = val_dataloader
 
 val_evaluator = dict(type='IoU')

@@ -1,15 +1,6 @@
-# Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
-
-# This source code is licensed under the license found in the
-# LICENSE file in the root directory of this source tree.
-
-# Borrowed from https://github.com/facebookresearch/segment-anything
-
 from typing import Any, Dict, List, Tuple
 
 import torch
-from torch import nn
 from torch.nn import functional as F
 
 from mmengine.model import BaseModel
@@ -19,8 +10,7 @@ from mmdet.models.utils import get_uncertain_point_coords_with_randomness
 from mmcv.ops import point_sample
 
 from open_sam.registry import MODELS
-from .mask_decoder import MaskDecoder
-from .prompt_encoder import PromptEncoder
+from .utils import calc_iou
 
 
 @MODELS.register_module()
@@ -43,10 +33,11 @@ class SAM(BaseModel):
                                               naive_dice=True,
                                               eps=1.0,
                                               loss_weight=5.0),
-                 pixel_mean: List[float] = [123.675, 116.28, 103.53],
-                 pixel_std: List[float] = [58.395, 57.12, 57.375],
+                 loss_iou: ConfigType = dict(type='mmdet.MSELoss',
+                                             loss_weight=1.0),
                  train_cfg: OptConfigType = None,
                  test_cfg: OptConfigType = None,
+                 data_preprocessor: OptConfigType = None,
                  init_cfg: OptConfigType = None) -> None:
         """SAM predicts object masks from an image and input prompts. Borrowed
         from https://github.com/facebookresearch/segment-anything.
@@ -64,16 +55,20 @@ class SAM(BaseModel):
           pixel_std (list(float)): Std values for normalizing pixels in the
             input image.
         """
-        super().__init__(init_cfg=init_cfg)
+        super().__init__(data_preprocessor=data_preprocessor,
+                         init_cfg=init_cfg)
         self.image_encoder = MODELS.build(image_encoder)
-        self.prompt_encoder: PromptEncoder = MODELS.build(prompt_encoder)
-        self.mask_decoder: MaskDecoder = MODELS.build(mask_decoder)
-        self.register_buffer('pixel_mean',
-                             torch.Tensor(pixel_mean).view(-1, 1, 1), False)
-        self.register_buffer('pixel_std',
-                             torch.Tensor(pixel_std).view(-1, 1, 1), False)
+        self.prompt_encoder = MODELS.build(prompt_encoder)
+        self.mask_decoder = MODELS.build(mask_decoder)
 
         self.ignore_index = 255
+
+        self.register_buffer(
+            'pixel_mean',
+            torch.Tensor([123.675, 116.28, 103.53]).view(-1, 1, 1), False)
+        self.register_buffer(
+            'pixel_std',
+            torch.Tensor([58.395, 57.12, 57.375]).view(-1, 1, 1), False)
 
         # =========
 
@@ -87,6 +82,7 @@ class SAM(BaseModel):
 
         self.loss_mask = MODELS.build(loss_mask)
         self.loss_dice = MODELS.build(loss_dice)
+        self.loss_iou = MODELS.build(loss_iou)
 
     def init_weights(self):
         super().init_weights()
@@ -100,18 +96,17 @@ class SAM(BaseModel):
         batched_inputs: List[dict]  
         '''
         batched_inputs = []
-        for idx, (img,
-                  data_sample) in enumerate(zip(inputs['img'], data_samples)):
+        for idx, (img, data_sample) in enumerate(zip(inputs, data_samples)):
             metainfo = data_sample.metainfo
             prompt_type = metainfo['prompt_type']
             prompt_instances = data_samples[idx].prompt_instances
 
             inputs = dict(image=img, original_size=metainfo['original_size'])
 
-            if prompt_type == 0:
+            if prompt_type == 'point':
                 inputs.update(point_coords=prompt_instances.point_coords,
                               point_labels=prompt_instances.point_labels)
-            elif prompt_type == 1:
+            elif prompt_type == 'boxes':
                 inputs.update(boxes=prompt_instances.boxes)
 
             batched_inputs.append(inputs)
@@ -126,17 +121,18 @@ class SAM(BaseModel):
         batched_inputs = self._format_inputs(inputs, data_samples)
 
         if mode == 'loss':
-            return self.loss(batched_inputs, data_samples)
+            return self.loss(batched_inputs, data_samples, multimask_output)
         else:
             return self.predict(batched_inputs, data_samples, multimask_output)
 
-    def loss(self, batch_input, data_samples):
-        low_res_logits, iou_predictions = self._forward(batch_input,
-                                                        multimask_output=True)
+    def loss(self, batch_input, data_samples, multimask_output=False):
+        low_res_logits, iou_predictions = self._forward(
+            batch_input, multimask_output)
         loss_dict = dict()
         batch_size = len(data_samples)
-        loss_mask_total = 0
-        loss_dice_total = 0
+        loss_mask = 0
+        loss_dice = 0
+        loss_iou = 0
 
         for batch_idx, (logits, iou_scores) in enumerate(
                 zip(low_res_logits, iou_predictions)):
@@ -152,7 +148,7 @@ class SAM(BaseModel):
             num_masks_per_prompt = high_res_logits.size(1)
             if num_masks_per_prompt > 1:
                 b, num_masks, h, w = high_res_logits.shape
-                idx = torch.argmin(iou_scores, dim=1, keepdim=True)
+                idx = torch.argmax(iou_scores, dim=1, keepdim=True)
                 idx = idx.reshape(b, 1, 1, 1).expand(b, 1, h, w)
                 high_res_logits = torch.gather(high_res_logits,
                                                dim=1,
@@ -170,29 +166,33 @@ class SAM(BaseModel):
             mask_point_preds = point_sample(high_res_logits, point_coords)
 
             # cls loss
-            loss_mask = self.loss_mask(mask_point_preds.reshape(-1),
-                                       mask_point_targets.reshape(-1),
-                                       avg_factor=num_total_masks *
-                                       self.num_points)
+            loss_mask += self.loss_mask(mask_point_preds.reshape(-1),
+                                        mask_point_targets.reshape(-1),
+                                        avg_factor=num_total_masks *
+                                        self.num_points)
             # dice loss
-            loss_dice = self.loss_dice(mask_point_preds,
-                                       mask_point_targets,
-                                       avg_factor=num_total_masks)
+            loss_dice += self.loss_dice(mask_point_preds,
+                                        mask_point_targets,
+                                        avg_factor=num_total_masks)
 
             # TODO: loss iou
             # compute predicted mask iou with gt
             # iou_scores
+            batch_iou = calc_iou(high_res_logits.squeeze(1), gt_masks)
+            loss_iou += self.loss_iou(iou_scores,
+                                      batch_iou,
+                                      avg_factor=num_total_masks)
 
-            loss_mask_total += loss_mask
-            loss_dice_total += loss_dice
             # ===
 
-        loss_dict['loss_mask'] = loss_mask_total / batch_size
-        loss_dict['loss_dice'] = loss_dice_total / batch_size
+        loss_dict['loss_mask'] = loss_mask / batch_size
+        loss_dict['loss_dice'] = loss_dice / batch_size
+        loss_dict['loss_iou'] = loss_iou / batch_size
 
         return loss_dict
 
     def predict(self, batch_input, batch_data_samples, multimask_output=False):
+
         pred_masks, iou_predictions = self._forward(batch_input,
                                                     multimask_output)
         outputs = []
@@ -211,12 +211,13 @@ class SAM(BaseModel):
                 'low_res_logits': low_res_mask,
             })
 
+        # === TODO ===
         batch_data_samples = self.add_pred_to_datasample(
             batch_data_samples, outputs)
 
         return batch_data_samples
 
-    def add_pred_to_datasample(self, data_samples, results_list):
+    def add_pred_to_datasample(self, batch_data_samples, results_list):
         """Add predictions to `SamDataSample`.
 
         Args:
@@ -224,8 +225,8 @@ class SAM(BaseModel):
                 data samples that contain annotations and predictions.
             results_list (list[:obj:`dict`]): sam results of each image.
         """
-
-        for data_sample, pred_output in zip(data_samples, results_list):
+        for data_sample, pred_output in zip(batch_data_samples, results_list):
+            img_meta = data_sample.metainfo
             pred_masks = pred_output['masks']  # B,num_masks,H,W
             iou_scores = pred_output['iou_predictions']
             num_masks = pred_masks.size(1)
@@ -233,18 +234,23 @@ class SAM(BaseModel):
             if num_masks > 1:
                 idx = torch.argmax(pred_output['iou_predictions'])
                 iou_scores = iou_scores[:, idx]
-                pred_masks = pred_masks[:, idx]
+                pred_masks = pred_masks[:, idx:idx + 1]
             else:
+                pred_masks = pred_masks
+                iou_scores = iou_scores
+                pred_masks = pred_masks.squeeze(1)
                 pred_masks = pred_masks.squeeze(1)
                 iou_scores = iou_scores
+            pred_masks = pred_masks.squeeze(1)
 
             pred_instances = InstanceData()
-            pred_instances.masks = num_masks
+            pred_instances.masks = pred_masks
             pred_instances.scores = iou_scores
+            pred_instances.labels = data_sample.gt_instances['labels']
 
             data_sample.pred_instances = pred_instances
 
-        return data_samples
+        return batch_data_samples
 
     def _forward(
         self,
@@ -290,8 +296,12 @@ class SAM(BaseModel):
                 shape BxCxHxW, where H=W=256. Can be passed as mask input
                 to subsequent iterations of prediction.
         """
-        input_images = torch.stack(
-            [self.preprocess(x['image']) for x in batched_input], dim=0)
+        if self.data_preprocessor is None:
+            input_images = torch.stack(
+                [self.preprocess(x['image']) for x in batched_input], dim=0)
+        else:
+            input_images = torch.stack([x['image'] for x in batched_input],
+                                       dim=0)
         image_embeddings = self.image_encoder(input_images)[0]
 
         pred_masks_list = []
@@ -310,7 +320,7 @@ class SAM(BaseModel):
             )
             low_res_masks, iou_predictions = self.mask_decoder(
                 image_embeddings=curr_embedding.unsqueeze(0),
-                image_pe=self.prompt_encoder.get_dense_pe(),
+                image_positional_embeddings=self.prompt_encoder.get_dense_pe(),
                 sparse_prompt_embeddings=sparse_embeddings,
                 dense_prompt_embeddings=dense_embeddings,
                 multimask_output=multimask_output,

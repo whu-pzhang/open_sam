@@ -39,10 +39,15 @@ def collect_image_files(img_dir,
     return img_files
 
 
-def collect_annotations(data_path, ignore_values, nproc=1):
+def collect_annotations(data_path,
+                        ignore_values,
+                        reduce_zero_label=False,
+                        nproc=1):
     print('Loading annotation images')
 
-    fn = partial(mask2coco, ignore_values=ignore_values)
+    fn = partial(mask2coco,
+                 ignore_values=ignore_values,
+                 reduce_zero_label=reduce_zero_label)
     if nproc > 1:
         images = track_parallel_progress(fn, data_path, nproc=nproc)
     else:
@@ -51,7 +56,7 @@ def collect_annotations(data_path, ignore_values, nproc=1):
     return images
 
 
-def mask2coco(data_info, ignore_values=[0]):
+def mask2coco(data_info, ignore_values=[0, 255], reduce_zero_label=False):
     img_file, mask_file = data_info
     # get image info
     img = Image.open(img_file)
@@ -61,6 +66,11 @@ def mask2coco(data_info, ignore_values=[0]):
 
     sem_seg_map = mmcv.imread(mask_file, flag='unchanged', backend='pillow')
     sem_seg_map = sem_seg_map.astype(np.uint8)
+    if reduce_zero_label:
+        sem_seg_map[sem_seg_map == 0] = 255
+        sem_seg_map = sem_seg_map - 1
+        sem_seg_map[sem_seg_map == 254] = 255
+
     unique_class_ids = np.unique(sem_seg_map)
 
     ann_info = []
@@ -100,7 +110,6 @@ def mask2coco(data_info, ignore_values=[0]):
 
 
 def cvt_to_coco_json(img_infos, classes):
-
     coco = dict()
 
     image_id = 0
@@ -112,7 +121,7 @@ def cvt_to_coco_json(img_infos, classes):
     coco['annotations'] = []
     image_set = set()
 
-    for category_id, name in enumerate(classes, start=1):
+    for category_id, name in enumerate(classes):
         category_item = dict()
         category_item['supercategory'] = str('none')
         category_item['id'] = int(category_id)
@@ -169,6 +178,7 @@ def parse_args():
     parser.add_argument('--seg-map-suffix',
                         default='.png',
                         help='semantic segmentation map suffix')
+    parser.add_argument('--reduce-zero-label', action='store_true')
     args = parser.parse_args()
     return args
 
@@ -186,16 +196,18 @@ def main():
                                     seg_map_suffix=args.seg_map_suffix)
 
     # 2 convert to coco format data
-    img_infos = collect_annotations(img_files, ignore_values=[0], nproc=4)
+    img_infos = collect_annotations(img_files,
+                                    ignore_values=[0, 255],
+                                    reduce_zero_label=args.reduce_zero_label,
+                                    nproc=4)
     classes = list_from_file(args.classes)
     coco_info = cvt_to_coco_json(img_infos, classes)
 
     # 3 dump
-    save_dir = osp.join(args.img_path, '..', 'annotations')
+    save_dir = osp.dirname(args.out)
     mkdir_or_exist(save_dir)
-    save_path = osp.join(save_dir, args.out)
-    print(f'save json file: {save_path}')
-    dump(coco_info, save_path)
+    print(f'save json file: {args.out}')
+    dump(coco_info, args.out)
 
 
 if __name__ == '__main__':

@@ -1,5 +1,5 @@
 _base_ = [
-    './_base_/datasets/whu-building_coco.py',
+    './_base_/datasets/nwpu_coco.py',
     './_base_/default_runtime.py',
     './_base_/models/sam_tiny.py',
 ]

@@ -1,7 +1,14 @@
 # model
+data_preprocessor = dict(type='SamDataPreprocessor',
+                         mean=[123.675, 116.28, 103.53],
+                         std=[58.395, 57.12, 57.375],
+                         bgr_to_rgb=True,
+                         pad_size=(1024, 1024))
+
 checkpoint = 'weights/sam_vit-tiny.pth'  # noqa
 model = dict(
     type='SAM',
+    data_preprocessor=data_preprocessor,
     init_cfg=dict(type='Pretrained', checkpoint=checkpoint),
     image_encoder=dict(type='TinyViT',
                        arch='5m',
@@ -29,11 +36,6 @@ model = dict(
                       transformer_dim=256,
                       iou_head_depth=3,
                       iou_head_hidden_dim=256),
-    #
-    # loss_mask=dict(type='mmdet.CrossEntropyLoss',
-    #                use_sigmoid=True,
-    #                reduction='mean',
-    #                loss_weight=1.0),
     loss_mask=dict(type='mmdet.FocalLoss',
                    use_sigmoid=True,
                    gamma=2.0,
@@ -46,7 +48,7 @@ model = dict(
                    naive_dice=True,
                    eps=1.0,
                    loss_weight=1.0),
-    # loss_iou=None,
+    loss_iou=dict(type='mmdet.MSELoss', loss_weight=1.0),
     #
     train_cfg=dict(
         num_points=12544,
