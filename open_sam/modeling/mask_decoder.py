@@ -149,6 +149,8 @@ class MaskDecoder(nn.Module):
         b, c, h, w = src.shape  # B,256,64,64
 
         # Run the transformer
+        # hs is the transformer output for prompt
+        # src is the transformer output for image
         hs, src = self.transformer(src, pos_src, tokens)
         iou_token_out = hs[:, 0, :]
         mask_tokens_out = hs[:, 1:(1 + self.num_mask_tokens), :]
@@ -163,6 +165,8 @@ class MaskDecoder(nn.Module):
                 mask_tokens_out[:, i, :]))
         hyper_in = torch.stack(hyper_in_list, dim=1)
         b, c, h, w = upscaled_embedding.shape
+        # Dot product of the MLP output for each "output token" and
+        # the upscaled mask (each output token represent a mask)
         masks = (hyper_in @ upscaled_embedding.view(b, c, h * w)).view(
             b, -1, h, w)
 
