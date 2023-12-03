@@ -3,8 +3,11 @@
 
 ## TODO
 
-- [] 支持mask2coco，数据全部采用coco格式
-- [] 支持SAM微调训练
+- [x] 支持mask2coco，数据全部采用coco格式
+- [x] 支持SAM微调训练
+- [ ] 修改训练为batch训练，而非单张图计算后汇总
+- [ ] 支持 gradio 在线 demo
+- [ ] 支持 onnx 导出和推理
 
 
 
