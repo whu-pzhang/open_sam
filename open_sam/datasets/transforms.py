@@ -22,7 +22,7 @@ from .sam_data_sample import SamDataSample
 
 @TRANSFORMS.register_module()
 class GenerateSAMPrompt(BaseTransform):
-    prompt_types = ('point', 'boxes', 'masks')
+    valid_prompts = ['point', 'boxes']
 
     def __init__(self,
                  prompt_type=['point', 'boxes'],
@@ -30,14 +30,12 @@ class GenerateSAMPrompt(BaseTransform):
                  points_per_instance=2,
                  noise_cfg=dict(bbox_std_ratio=0.1, bbox_max_offset=20),
                  ignore_values=[255]):
-        valid_prompts = ['point', 'boxes']
-
         if isinstance(prompt_type, str):
-            assert prompt_type in valid_prompts
+            assert prompt_type in self.valid_prompts
             prompt_type = [prompt_type]
         elif isinstance(prompt_type, list):
             assert mmengine.is_list_of(prompt_type, str)
-            assert set(prompt_type).issubset(set(valid_prompts))
+            assert set(prompt_type).issubset(set(self.valid_prompts))
         else:
             raise ValueError(f'prompt_type must be either str or list of str, \
                                but got `{type(prompt_type)}`.')
