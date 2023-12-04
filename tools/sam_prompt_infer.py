@@ -13,6 +13,7 @@ import torch
 from torch.utils.data import Dataset
 from tqdm import tqdm
 from mmengine.utils import ProgressBar
+from mmengine.device import get_device
 
 from pycocotools.coco import COCO
 
@@ -24,6 +25,19 @@ SAM 分割精度测试：
 2. 利用生成的 prompt 引导 SAM 完成分割
 3. 评估分割精度
 '''
+
+
+def point_sampling(mask, num_points=2):
+    fg_coords = np.argwhere(mask > 0)[:, ::-1]
+    fg_size = len(fg_coords)
+
+    num_fg = num_points
+    fg_indices = np.random.choice(fg_size, size=num_fg, replace=True)
+    fg_coords = fg_coords[fg_indices]
+    coords = fg_coords
+    labels = np.ones(num_fg).astype(int)
+    indices = np.random.permutation(num_points)
+    return coords[indices], labels[indices]
 
 
 def contours2bbox(contours):
@@ -83,30 +97,51 @@ def mask2bbox(mask, ignore_index=255):
     return bboxes_per_class
 
 
-def sam_batch_predict(predictor, input_bboxes, img_hw, batch_size=32):
-    num_bboxes = len(input_bboxes)
-    num_batches = int(np.ceil(num_bboxes / batch_size))
+def sam_batch_predict(predictor,
+                      img_hw,
+                      point_coords=None,
+                      point_labels=None,
+                      bboxes=None,
+                      batch_size=32):
 
+    if bboxes is not None:
+        num_prompts = len(bboxes)
+        bboxes = torch.from_numpy(bboxes).to(predictor.device)
+
+    if point_coords is not None:
+        num_prompts = len(point_coords)
+        point_coords = torch.from_numpy(point_coords).to(predictor.device)
+        point_labels = torch.from_numpy(point_labels).to(predictor.device)
+        # print(point_coords.shape, point_labels.shape)
+
+    num_batches = int(np.ceil(num_prompts / batch_size))
     masks = []
-    input_bboxes_tensor = torch.from_numpy(input_bboxes).to(predictor.device)
     for i in range(num_batches):
         left_index = i * batch_size
-        right_index = (i + 1) * batch_size
-        if i == num_batches - 1:
-            batch_boxes = input_bboxes_tensor[left_index:]
-        else:
-            batch_boxes = input_bboxes_tensor[left_index:right_index]
+        right_index = (i +
+                       1) * batch_size if i < num_batches - 1 else num_prompts
 
-        transformed_boxes = predictor.transform.apply_boxes_torch(
-            batch_boxes, img_hw)
+        boxes_torch = None
+        coords_torch = None
+        labels_torch = None
+
+        if bboxes is not None:
+            boxes_torch = bboxes[left_index:right_index]
+            boxes_torch = predictor.transform.apply_boxes_torch(
+                boxes_torch, img_hw)
+        else:
+            coords_torch = point_coords[left_index:right_index]
+            labels_torch = point_labels[left_index:right_index]
+            coords_torch = predictor.transform.apply_coords_torch(
+                coords_torch, img_hw)
 
         # output mask: (B,num_masks,H,W)
         # output iou scores: (B,num_masks)
         # output logits: (B,num_masks,256,256)
         batch_masks, scores, logits = predictor.predict_torch(
-            point_coords=None,
-            point_labels=None,
-            boxes=transformed_boxes,
+            point_coords=coords_torch,
+            point_labels=labels_torch,
+            boxes=boxes_torch,
             multimask_output=False,
             return_logits=False)
 
@@ -134,7 +169,7 @@ def instance2segmap(instances, img_hw):
     return seg_maps
 
 
-def mask2instance(mask, ignore_index=[255]):
+def mask2instance(mask, ignore_index=[255], num_points=2):
     class_vals = np.unique(mask)
 
     instances = []
@@ -153,10 +188,15 @@ def mask2instance(mask, ignore_index=[255]):
             w = stats[i, cv2.CC_STAT_WIDTH]
             h = stats[i, cv2.CC_STAT_HEIGHT]
             # boxes.append([x, y, x + w - 1, y + h - 1])
+
+            point_coords, point_labels = point_sampling(cur_object,
+                                                        num_points=num_points)
             instances.append(
-                dict(cat_id=val,
+                dict(cat_id=int(val),
                      mask=cur_object,
-                     bbox=[x, y, x + w - 1, y + h - 1]))
+                     bbox=[x, y, x + w - 1, y + h - 1],
+                     point_coords=point_coords,
+                     point_labels=point_labels))
 
     return instances
 
@@ -172,7 +212,8 @@ class RSDataset(Dataset):
                  ann_dir=None,
                  mode='seg_map',
                  reduce_zero_label=False,
-                 ignore_index=[255],
+                 ignore_index=[0, 255],
+                 num_points=1,
                  **kwargs):
 
         assert mode in ['coco', 'seg_map']
@@ -186,6 +227,7 @@ class RSDataset(Dataset):
         self.img_suffix = img_suffix
         self.seg_map_suffix = seg_map_suffix
         self.ignore_index = ignore_index
+        self.num_points = num_points
 
         if self.ann_file and (not osp.isabs(self.ann_file)):
             self.ann_file = self.data_root / self.ann_file
@@ -229,7 +271,9 @@ class RSDataset(Dataset):
                 seg_map = seg_map - 1
                 seg_map[seg_map == 254] = 255
 
-            instances = mask2instance(seg_map, ignore_index=self.ignore_index)
+            instances = mask2instance(seg_map,
+                                      ignore_index=self.ignore_index,
+                                      num_points=self.num_points)
 
         if len(instances) == 0:
             results = {}
@@ -287,7 +331,8 @@ DATASET_INFO = {
          img_suffix='.tif',
          seg_map_suffix='.tif',
          classes=('background', 'building'),
-         palette=[[0, 0, 0], [255, 255, 255]]),
+         palette=[[0, 0, 0], [255, 255, 255]],
+         ignore_index=[0, 255]),
     'loveda':
     dict(data_root='data/loveDA',
          img_dir='img_dir/val',
@@ -298,7 +343,8 @@ DATASET_INFO = {
          classes=('background', 'building', 'road', 'water', 'barren',
                   'forest', 'agricultural'),
          palette=[[255, 255, 255], [255, 0, 0], [255, 255, 0], [0, 0, 255],
-                  [159, 129, 183], [0, 255, 0], [255, 195, 128]]),
+                  [159, 129, 183], [0, 255, 0], [255, 195, 128]],
+         ignore_index=[0, 255]),
     'potsdam':
     dict(
         data_root='data/Potsdam',
@@ -334,6 +380,11 @@ def parse_args():
                         choices=['tiny', 'base', 'large', 'huge'])
     parser.add_argument('--dataset', type=str, default='loveda')
     parser.add_argument('--checkpoint', type=str, default=None)
+    parser.add_argument('--prompt',
+                        type=str,
+                        default='bbox',
+                        choices=['point', 'bbox'])
+    parser.add_argument('--num-points', type=int, default=1)
 
     args = parser.parse_args()
     return args
@@ -345,18 +396,17 @@ def main():
 
     data_info = DATASET_INFO[args.dataset]
 
-    dataset = RSDataset(**data_info)
+    dataset = RSDataset(**data_info, num_points=args.num_points)
 
     img_dir, ann_dir = dataset.img_dir, dataset.ann_dir
     if ann_dir is None:
         ann_dir = dataset.data_root
 
-    out_dir = ann_dir.parent / f'sam-{args.model_type}-bbox-prompt_pred'
+    out_dir = ann_dir.parent / f'sam-{args.model_type}-{args.prompt}-prompt_pred'
     out_dir.mkdir(exist_ok=True, parents=True)
-    reduce_zero_label = data_info['reduce_zero_label']
     palette = [i for rgb in data_info['palette'] for i in rgb]
 
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    device = get_device()
     sam = build_sam(arch=args.model_type, checkpoint=args.checkpoint)
     sam = sam.to(device)
     sam_predictor = SamPredictor(sam)
@@ -371,23 +421,28 @@ def main():
         img = data['image']
         cat_ids = data.get('cat_id', None)
         bboxes = data.get('bbox', None)
+        point_coords = data.get('point_coords', None)
+        point_labels = data.get('point_labels', None)
 
         pbar.set_description(f'{filename}')
 
+        prompt_input = dict(bboxes=bboxes if args.prompt == 'bbox' else None)
+        if args.prompt == 'point':
+            prompt_input.update(point_coords=point_coords,
+                                point_labels=point_labels)
+
         if cat_ids is not None:
-            #
             sam_predictor.set_image(img)
+            pred_masks = sam_batch_predict(sam_predictor, img.shape[:2],
+                                           **prompt_input)
 
             masks = []
-            for cat_id, bbox in zip(cat_ids, bboxes):
-                cur_bbox = np.array(bbox)
-                cur_masks = sam_batch_predict(sam_predictor, cur_bbox,
-                                              img.shape[:2])
-                for idx, mask in enumerate(cur_masks):
-                    mask = mask.cpu().numpy()
-                    area = np.sum(mask)
-                    ann = dict(segmentation=mask, area=area, id=cat_id)
-                    masks.append(ann)
+            for idx, mask in enumerate(pred_masks):
+                mask = mask.cpu().numpy()
+                area = np.sum(mask)
+                ann = dict(segmentation=mask, area=area, id=cat_ids[idx])
+                masks.append(ann)
+
             sorted_masks = sorted(masks,
                                   key=(lambda x: x['area']),
                                   reverse=True)

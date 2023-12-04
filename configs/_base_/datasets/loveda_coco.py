@@ -2,11 +2,13 @@
 dataset_type = 'mmdet.CocoDataset'
 data_root = 'data/loveDA'
 
-metainfo = dict(classes=('background', 'building', 'road', 'water', 'barren',
-                         'forest', 'agricultural'),
-                palette=[[255, 255, 255], [255, 0, 0], [255, 255, 0],
-                         [0, 0, 255], [159, 129, 183], [0, 255, 0],
-                         [255, 195, 128]])
+# metainfo = dict(classes=('background', 'building', 'road', 'water', 'barren',
+#                          'forest', 'agricultural'),
+#                 palette=[[255, 255, 255], [255, 0, 0], [255, 255, 0],
+#                          [0, 0, 255], [159, 129, 183], [0, 255, 0],
+#                          [255, 195, 128]])
+metainfo = dict(classes=('background', 'building', 'water'),
+                palette=[[255, 255, 255], [255, 0, 0], [0, 0, 255]])
 
 train_pipeline = [
     dict(type='LoadImageFromFile'),

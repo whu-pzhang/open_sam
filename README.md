@@ -5,7 +5,7 @@
 
 - [x] 支持mask2coco，数据全部采用coco格式
 - [x] 支持SAM微调训练
-- [ ] 优化 point 取样方式，提高效率
+- [x] 优化 point 取样方式，提高效率
 - [ ] 修改训练为batch训练，而非单张图计算后汇总
 - [ ] 支持 gradio 在线 demo
 - [ ] 支持 onnx 导出和推理
@@ -21,23 +21,29 @@
 val set performance
 
 
-| Model     | Prompt Type | background | building | mIoU      |
+| Model     | Prompt Mode | background | building | mIoU      |
 | --------- | ----------- | ---------- | -------- | --------- |
-| SAM-Tiny  | boxes       | 97.97      | 85.09    | 91.53     |
-| SAM-Base  | boxes       | 98.35      | 87.31    | 92.83     |
-| SAM-Large | boxes       | 98.63      | 89.4     | **94.02** |
-| SAM-Huge  | boxes       | 98.59      | 89.14    | 93.87     |
+| SAM-Tiny  | bbox        | 97.88      | 84.55    | 91.22     |
+|           | 1 pt        | 94.07      | 60.93    | 77.5      |
+|           | 2 pts       | 95.26      | 69.73    | 82.49     |
+|           | 3 pts       | 95.4       | 71.24    | 83.32     |
+| SAM-Base  | bbox        | 98.35      | 87.31    | 92.83     |
+| SAM-Large | bbox        | 98.63      | 89.4     | **94.02** |
+| SAM-Huge  | bbox        | 98.59      | 89.14    | 93.87     |
 
 
 
 ### LoveDA
 
-| Model     | Prompt Type | background | building | road  | water | barren | forest | agricultural | mIoU      |
+| Model     | Prompt Mode | background | building | road  | water | barren | forest | agricultural | mIoU      |
 | --------- | ----------- | ---------- | -------- | ----- | ----- | ------ | ------ | ------------ | --------- |
-| SAM-Tiny  | boxes       | 61.54      | 68.24    | 41.24 | 76.19 | 64.45  | 55.96  | 73.2         | 62.97     |
-| SAM-Base  | boxes       | 58.08      | 69.62    | 30.12 | 78.91 | 67.61  | 58.94  | 77.11        | 62.91     |
-| SAM-Large | boxes       | 65.12      | 70.74    | 41.03 | 78.28 | 66.82  | 59.27  | 78.93        | **65.74** |
-| SAM-Huge  | boxes       | 60.11      | 71.96    | 33.00 | 79.66 | 69.93  | 60.20  | 80.67        | 65.08     |
+| SAM-Tiny  | bbox        | 61.54      | 68.24    | 41.24 | 76.19 | 64.45  | 55.96  | 73.2         | 62.97     |
+|           | 1 pt        |            |          |       |       |        |        |              |           |
+|           | 2 pts       |            |          |       |       |        |        |              |           |
+|           | 3 pts       |            |          |       |       |        |        |              |           |
+| SAM-Base  | bbox        | 58.08      | 69.62    | 30.12 | 78.91 | 67.61  | 58.94  | 77.11        | 62.91     |
+| SAM-Large | bbox        | 65.12      | 70.74    | 41.03 | 78.28 | 66.82  | 59.27  | 78.93        | **65.74** |
+| SAM-Huge  | bbox        | 60.11      | 71.96    | 33.00 | 79.66 | 69.93  | 60.20  | 80.67        | 65.08     |
 
 
 
@@ -45,27 +51,28 @@ val set performance
 
 with clutter
 
-| Model     | Prompt Type | impre. surf | building | low_veg | tree  | car   | clutter | mIoU      |
+| Model     | Prompt Mode | impre. surf | building | low_veg | tree  | car   | clutter | mIoU      |
 | --------- | ----------- | ----------- | -------- | ------- | ----- | ----- | ------- | --------- |
-| SAM-Tiny  | boxes       | 71.66       | 75.13    | 77.51   | 66.70 | 95.54 | 71.30   | 76.31     |
-| SAM-Base  | boxes       | 73.24       | 77.20    | 79.77   | 65.65 | 94.85 | 73.14   | 77.31     |
-| SAM-Large | boxes       | 78.56       | 86.75    | 81.85   | 67.87 | 95.66 | 75.67   | **81.00** |
-| SAM-Huge  | boxes       | 77.29       | 83.57    | 81.12   | 67.65 | 96.07 | 75.33   | 80.17     |
+| SAM-Tiny  | bbox        | 71.66       | 75.13    | 77.51   | 66.70 | 95.54 | 71.30   | 76.31     |
+| SAM-Base  | bbox        | 73.24       | 77.20    | 79.77   | 65.65 | 94.85 | 73.14   | 77.31     |
+| SAM-Large | bbox        | 78.56       | 86.75    | 81.85   | 67.87 | 95.66 | 75.67   | **81.00** |
+| SAM-Huge  | bbox        | 77.29       | 83.57    | 81.12   | 67.65 | 96.07 | 75.33   | 80.17     |
 
 
 ## Finetune SAM
 
 
-| Model    | Prompt Type | Style             | whu-building | loveda | potsdam | Epoch |
+| Model    | Prompt Mode | Style             | whu-building | loveda | potsdam | Epoch |
 | -------- | ----------- | ----------------- | ------------ | ------ | ------- | ----- |
-| SAM-Tiny | boxes       | Finetune(decoder) | 93.24        |        |         |       |
+| SAM-Tiny | bbox        | Finetune(decoder) | 93.24        |        |         |       |
+|          | 1 pt        |                   | 82.08        |        |         |       |
 
 
 性能对比
 
 | Model    | Finetune dataset | whu-building | loveda | potsdam | Epoch |
 | -------- | ---------------- | ------------ | ------ | ------- | ----- |
-| SAM-tiny | whu-building     | 93.5         | 58.26  | 68.94   | 2     |
+| SAM-tiny | whu-building     | 93.91        | 58.26  | 68.94   | 12    |
 | SAM-tiny | loveda           | 91.71        | 57.20  | 62.34   | 12    |
 | SAM-tiny | potsdam          | 90.73        | 59.23  | 72.86   | 12    |
 

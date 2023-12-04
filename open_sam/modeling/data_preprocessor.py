@@ -2,11 +2,9 @@ from typing import List, Optional, Sequence, Tuple, Union
 
 import torch
 import torch.nn.functional as F
-import numpy as np
 from mmengine.utils import is_seq_of
 from mmengine.model import BaseDataPreprocessor, ImgDataPreprocessor
-from mmdet.models.utils.misc import samplelist_boxtype2tensor
-from mmdet.models.data_preprocessors import DetDataPreprocessor
+from mmengine.structures import InstanceData
 
 from open_sam.registry import MODELS
 from ..datasets import SamDataSample
@@ -64,7 +62,7 @@ class SamDataPreprocessor(ImgDataPreprocessor):
         inputs, data_samples = data['inputs'], data['data_samples']
         inputs = self.pad_images(inputs)
 
-        # self.pad_points_and_labels(data_samples)
+        # self.pad_points_and_boxes(data_samples)
 
         return {'inputs': inputs, 'data_samples': data_samples}
 
@@ -103,7 +101,7 @@ class SamDataPreprocessor(ImgDataPreprocessor):
                              self.pad_value)
         return batch_inputs
 
-    def pad_points_and_labels(self, data_samples):
+    def pad_points_and_boxes(self, data_samples):
         '''
         input_points (`torch.FloatTensor` of shape `(batch_size, num_points, 2)`):
             Input 2D spatial points, this is used by the prompt encoder to encode the prompt. Generally yields to much
@@ -129,36 +127,32 @@ class SamDataPreprocessor(ImgDataPreprocessor):
 
             The padding labels should be automatically done by the processor.
         '''
-        point_coords = [
-            data_sample.prompt_instances.point_coords
-            for data_sample in data_samples
-        ]
-        point_labels = [
-            data_sample.prompt_instances.point_labels
-            for data_sample in data_samples
-        ]
 
-        # expected number of points in batch
-        expected_nb_points = max(pc.shape[0] for pc in point_coords)
-        processed_input_points = []
-        device = point_coords[0].device
-        for i, pc in enumerate(point_coords):
+        # expected number of prompts in batch
+        expected_nb_points = max(s.prompt_instances.point_coords.shape[0]
+                                 for s in data_samples)
+        for i, data_sample in enumerate(data_samples):
+            prompt_instance = data_sample.prompt_instances
+            pc = data_sample.prompt_instances.point_coords
             if pc.shape[0] != expected_nb_points:
                 pad_len = expected_nb_points - pc.shape[0]
                 pad_pc = torch.full(size=(pad_len, pc.shape[1], 2),
                                     fill_value=self.point_pad_value,
-                                    device=device)
-                pc = torch.concat([pc, pad_pc + self.point_pad_value], dim=0)
-
-                pad_labels = torch.full(size=(pad_len, 2),
+                                    device=self.device)
+                pad_labels = torch.full(size=(pad_len, pc.shape[1]),
                                         fill_value=self.point_pad_value,
-                                        device=device)
-                pl = torch.concat([point_labels[i], pad_labels], dim=0)
+                                        device=self.device)
+                pad_boxes = torch.full(size=(pad_len, 4),
+                                       fill_value=self.point_pad_value,
+                                       device=self.device)
 
-            processed_input_points.append(pc)
+                temp_instance = InstanceData()
+                temp_instance['point_coords'] = pad_pc
+                temp_instance['point_labels'] = pad_labels
+                temp_instance['boxes'] = pad_boxes
 
-    def pad_boxes(self, data_samples):
-        pass
+                data_sample.prompt_instances = InstanceData.cat(
+                    [prompt_instance, temp_instance])
 
     def pad_gt_masks(self,
                      batch_data_samples: Sequence[SamDataSample]) -> None:

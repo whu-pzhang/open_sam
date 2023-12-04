@@ -20,6 +20,38 @@ from open_sam.registry import TRANSFORMS
 from .sam_data_sample import SamDataSample
 
 
+def point_sampling(mask, num_points=2):
+
+    fg_coords = np.argwhere(mask > 0)[:, ::-1]
+    bg_coords = np.argwhere(mask == 0)[:, ::-1]
+    fg_size = len(fg_coords)
+    bg_size = len(bg_coords)
+
+    num_bg = num_points // 2
+    num_fg = num_points - num_bg
+    fg_indices = np.random.choice(fg_size, size=num_fg, replace=True)
+    bg_indices = np.random.choice(bg_size, size=num_bg, replace=True)
+    fg_coords = fg_coords[fg_indices]
+    bg_coords = bg_coords[bg_indices]
+    coords = np.concatenate([fg_coords, bg_coords], axis=0)
+    labels = np.concatenate([np.ones(num_fg), np.zeros(num_bg)]).astype(int)
+    indices = np.random.permutation(num_points)
+    return coords[indices], labels[indices]
+
+
+def bbox_perturbing(bbox, std_ratio=0.1, max_offset=20):
+    '''
+        bbox: (xyxy format)
+    '''
+    w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    x_noise = np.random.normal(0, scale=w * std_ratio, size=2)
+    y_noise = np.random.normal(0, scale=h * std_ratio, size=2)
+    bbox_noise = np.array([x_noise[0], y_noise[0], x_noise[1], y_noise[1]])
+    bbox_noise = np.clip(bbox_noise, -max_offset, max_offset)
+    bbox = bbox + bbox_noise
+    return bbox
+
+
 @TRANSFORMS.register_module()
 class GenerateSAMPrompt(BaseTransform):
     valid_prompts = ['point', 'boxes']
@@ -166,6 +198,7 @@ class GenerateSAMPrompt(BaseTransform):
             gt_masks = []
             if self.with_point:
                 point_coords = []
+                point_labels = []
 
         if self.add_noise:
             bbox_std_ratio = noise_cfg['bbox_std_ratio']
@@ -190,43 +223,19 @@ class GenerateSAMPrompt(BaseTransform):
                 cur_label = gt_bboxes_labels_old[idx]
                 gt_bboxes.append(cur_bbox)
                 gt_bboxes_labels.append(cur_label)
-
                 if self.add_noise:
-                    w, h = cur_bbox[2] - cur_bbox[0], cur_bbox[3] - cur_bbox[1]
-                    x_noise = np.random.normal(0,
-                                               scale=w * bbox_std_ratio,
-                                               size=2)
-                    y_noise = np.random.normal(0,
-                                               scale=h * bbox_std_ratio,
-                                               size=2)
-                    bbox_noise = np.array(
-                        [x_noise[0], y_noise[0], x_noise[1], y_noise[1]])
-                    bbox_noise = np.clip(bbox_noise, -bbox_max_offset,
-                                         bbox_max_offset)
-                    box = cur_bbox + bbox_noise
-                    boxes.append(box)
-                else:
-                    boxes.append(cur_bbox)
+                    cur_bbox = bbox_perturbing(cur_bbox,
+                                               std_ratio=bbox_std_ratio,
+                                               max_offset=bbox_max_offset)
+                boxes.append(cur_bbox)
 
             cur_mask = gt_masks_old[idx]
             gt_masks.append(cur_mask)
             if self.with_point:
-                # sample points
-                y, x = torch.meshgrid(torch.arange(img_h), torch.arange(img_w))
-                x_idx = torch.masked_select(
-                    x, torch.as_tensor(cur_mask, dtype=torch.bool))
-                y_idx = torch.masked_select(
-                    y, torch.as_tensor(cur_mask, dtype=torch.bool))
-                if len(x_idx) < points_per_instance:
-                    continue
-                selected_idx = torch.randperm(
-                    x_idx.shape[0])[:points_per_instance]
-                # print(len(x_idx), len(selected_idx))
-                samples_x = x_idx[selected_idx].numpy()
-                samples_y = y_idx[selected_idx].numpy()
-                samples_xy = np.concatenate(
-                    [samples_x[:, None], samples_y[:, None]], axis=1)
-                point_coords.append(samples_xy)
+                coords, labels = point_sampling(cur_mask,
+                                                num_points=points_per_instance)
+                point_coords.append(coords)
+                point_labels.append(labels)
 
         out = dict()
         gt_masks = np.stack(gt_masks)
@@ -244,8 +253,9 @@ class GenerateSAMPrompt(BaseTransform):
                        boxes=boxes)
 
         if self.with_point:
-            point_coords = np.stack(point_coords)
-            out.update(point_coords=point_coords)
+            point_coords = np.stack(point_coords, axis=0)
+            point_labels = np.stack(point_labels, axis=0)
+            out.update(point_coords=point_coords, point_labels=point_labels)
 
         return out
 
@@ -419,6 +429,15 @@ class PackSamInputs(BaseTransform):
             self.meta_keys += meta_keys
 
     def transform(self, results):
+        '''
+        Args:
+            resutls (dict): Result dict from the data pipeline.
+
+        Returns:
+            dict:
+            - 'inputs' (torch.Tensor): The forward data of models.
+            - 'data_sample' (SamDataSample): The annotation info of the sample.
+        '''
         packed_results = dict()
         if 'img' in results:
             img = results['img']
@@ -458,8 +477,7 @@ class PackSamInputs(BaseTransform):
 
         if results.get('point_coords', None) is not None:
             point_coords = to_tensor(results['point_coords'])
-            point_labels = torch.ones(point_coords.shape[:2],
-                                      dtype=torch.uint8)
+            point_labels = to_tensor(results['point_labels'])
             prompt_instance['point_coords'] = point_coords
             prompt_instance['point_labels'] = point_labels
 
