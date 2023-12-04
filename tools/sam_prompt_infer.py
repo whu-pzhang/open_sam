@@ -6,9 +6,9 @@ import argparse
 import numpy as np
 import cv2
 from PIL import Image
+from tqdm import tqdm
 import torch
 from torch.utils.data import Dataset
-from mmengine.utils import ProgressBar
 from mmengine.device import get_device
 from pycocotools.coco import COCO
 
@@ -405,7 +405,7 @@ def main():
     sam = sam.to(device)
     sam_predictor = SamPredictor(sam)
 
-    pbar = ProgressBar(task_num=len(dataset))
+    pbar = tqdm(total=len(dataset))
     for data in dataset:
         filename = data['filename']
         img = data['image']
