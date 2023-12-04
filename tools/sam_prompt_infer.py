@@ -1,20 +1,15 @@
-import sys
-import os
 import os.path as osp
 from pathlib import Path
 from collections import defaultdict
 import argparse
 
 import numpy as np
-import matplotlib.pyplot as plt
 import cv2
 from PIL import Image
 import torch
 from torch.utils.data import Dataset
-from tqdm import tqdm
 from mmengine.utils import ProgressBar
 from mmengine.device import get_device
-
 from pycocotools.coco import COCO
 
 from open_sam import build_sam, SamPredictor
@@ -374,7 +369,7 @@ DATASET_INFO = {
 def parse_args():
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model_type',
+    parser.add_argument('--model-type',
                         type=str,
                         default='base',
                         choices=['tiny', 'base', 'large', 'huge'])
@@ -395,7 +390,6 @@ def main():
     args = parse_args()
 
     data_info = DATASET_INFO[args.dataset]
-
     dataset = RSDataset(**data_info, num_points=args.num_points)
 
     img_dir, ann_dir = dataset.img_dir, dataset.ann_dir
@@ -411,11 +405,7 @@ def main():
     sam = sam.to(device)
     sam_predictor = SamPredictor(sam)
 
-    suffix = ('*.jpg', '*.png', '*.tiff', '*.tif')
-    img_list = [f for s in suffix for f in img_dir.rglob(s)]
-    out_dir.mkdir(exist_ok=True, parents=True)
-
-    pbar = tqdm(total=len(dataset))
+    pbar = ProgressBar(total_num=len(dataset))
     for data in dataset:
         filename = data['filename']
         img = data['image']
