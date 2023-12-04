@@ -405,7 +405,7 @@ def main():
     sam = sam.to(device)
     sam_predictor = SamPredictor(sam)
 
-    pbar = ProgressBar(total_num=len(dataset))
+    pbar = ProgressBar(task_num=len(dataset))
     for data in dataset:
         filename = data['filename']
         img = data['image']
