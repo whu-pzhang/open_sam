@@ -166,8 +166,8 @@ def vis_coco_dataset():
             type='GenerateSAMPrompt',
             prompt_type=['point', 'boxes'],
             # prompt_type='boxes',
-            max_instances_per_classes=99,
-            points_per_instance=2,
+            max_instances_per_classes=10,
+            points_per_instance=1,
             noise_cfg=None,
         ),
         # dict(type='PackSamInputs')
@@ -204,6 +204,7 @@ def vis_coco_dataset():
                 show_mask(mask, ax, random_color=True)
 
         if sample.get('boxes', None) is not None:
+            print(len(sample['boxes']))
             for box in sample['boxes']:
                 show_box(box, ax)
 

@@ -207,9 +207,10 @@ class GenerateSAMPrompt(BaseTransform):
         #1. random select ground truth masks as prompt
         num_gts = len(gt_bboxes_old)
         max_num_objects = min(max_instances, num_gts)
+        # replace=True to ensure the number of prompts is max_instances
         random_selected_idx = np.random.choice(num_gts,
-                                               size=max_num_objects,
-                                               replace=False)
+                                               size=max_instances,
+                                               replace=True)
 
         if self.with_boxes:
             gt_bboxes = []
