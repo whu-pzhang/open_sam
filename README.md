@@ -20,6 +20,13 @@
 
 val set performance
 
+prompt mode
+
+- bbox: bbox generated from gt mask
+- 1 pt: randomly selected from gt mask
+- 2 pts:
+- 3 pts: 
+
 
 | Model     | Prompt Mode | background | building | mIoU      |
 | --------- | ----------- | ---------- | -------- | --------- |
@@ -28,6 +35,9 @@ val set performance
 |           | 2 pts       | 95.26      | 69.73    | 82.49     |
 |           | 3 pts       | 95.4       | 71.24    | 83.32     |
 | SAM-Base  | bbox        | 98.35      | 87.31    | 92.83     |
+|           | 1 pt        |            |          |           |
+|           | 2 pts       |            |          |           |
+|           | 3 pts       |            |          |           |
 | SAM-Large | bbox        | 98.63      | 89.4     | **94.02** |
 | SAM-Huge  | bbox        | 98.59      | 89.14    | 93.87     |
 
@@ -38,8 +48,8 @@ val set performance
 | Model     | Prompt Mode | background | building | road  | water | barren | forest | agricultural | mIoU      |
 | --------- | ----------- | ---------- | -------- | ----- | ----- | ------ | ------ | ------------ | --------- |
 | SAM-Tiny  | bbox        | 61.54      | 68.24    | 41.24 | 76.19 | 64.45  | 55.96  | 73.2         | 62.97     |
-|           | 1 pt        |            |          |       |       |        |        |              |           |
-|           | 2 pts       |            |          |       |       |        |        |              |           |
+|           | 1 pt        | 37.23      | 40.11    | 29.6  | 49.5  | 35.14  | 28.67  | 26.14        | 35.2      |
+|           | 2 pts       | 39.86      | 51.96    | 36.76 | 59.68 | 43.94  | 33.51  | 49.4         | 45.02     |
 |           | 3 pts       |            |          |       |       |        |        |              |           |
 | SAM-Base  | bbox        | 58.08      | 69.62    | 30.12 | 78.91 | 67.61  | 58.94  | 77.11        | 62.91     |
 | SAM-Large | bbox        | 65.12      | 70.74    | 41.03 | 78.28 | 66.82  | 59.27  | 78.93        | **65.74** |
@@ -64,7 +74,7 @@ with clutter
 
 | Model    | Prompt Mode | Style             | whu-building | loveda | potsdam | Epoch |
 | -------- | ----------- | ----------------- | ------------ | ------ | ------- | ----- |
-| SAM-Tiny | bbox        | Finetune(decoder) | 93.24        |        |         |       |
+| SAM-Tiny | bbox        | Finetune(decoder) | 93.77        |        |         |       |
 |          | 1 pt        |                   | 82.08        |        |         |       |
 
 

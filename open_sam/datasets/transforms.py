@@ -82,18 +82,6 @@ class GenerateSAMPrompt(BaseTransform):
     def add_noise(self):
         return self.noise_cfg is not None
 
-    @property
-    def with_boxes(self):
-        return 'boxes' in self.prompt_type
-
-    @property
-    def with_point(self):
-        return ('point' in self.prompt_type) and self.has_masks
-
-    @property
-    def has_masks(self):
-        return self._has_masks or self._has_seg_map
-
     def transform(self, results):
         gt_seg_map = results.get('gt_seg_map', None)
         gt_masks = results.get('gt_masks', None)
@@ -107,15 +95,17 @@ class GenerateSAMPrompt(BaseTransform):
         if (gt_seg_map is not None) and (gt_bboxes is None):
             results = self.segmap2instance(results)
 
-        prompts = self.generate_prompt(
+        results = self.generate_prompt(
             results,
             max_instances=self.max_instances_per_classes,
             points_per_instance=self.points_per_instance,
             noise_cfg=self.noise_cfg)
 
         # 0:point, 1:box, 2:mask
-        prompts['prompt_type'] = random.choice(self.prompt_type)
-        results.update(prompts)
+        if results.get('boxes', None) is not None:
+            results['prompt_type'] = random.choice(self.prompt_type)
+        else:
+            results['prompt_type'] = None
         return results
 
     @staticmethod
@@ -190,15 +180,14 @@ class GenerateSAMPrompt(BaseTransform):
             point_coords
         '''
         img_h, img_w = results['img_shape']
-        gt_masks_old = results.get('gt_masks', None)
+        # BaseBoxes
         gt_bboxes_old = results['gt_bboxes'].numpy()
         gt_bboxes_labels_old = results['gt_bboxes_labels']
-        if self.has_masks:
-            gt_masks_old = results['gt_masks'].to_ndarray()
-            gt_masks = []
-            if self.with_point:
-                point_coords = []
-                point_labels = []
+        # Bitmaps
+        gt_masks_old = results['gt_masks'].to_ndarray()
+
+        if not gt_bboxes_old.size:
+            return results
 
         if self.add_noise:
             bbox_std_ratio = noise_cfg['bbox_std_ratio']
@@ -208,57 +197,62 @@ class GenerateSAMPrompt(BaseTransform):
         num_gts = len(gt_bboxes_old)
         max_num_objects = min(max_instances, num_gts)
         # replace=True to ensure the number of prompts is max_instances
-        random_selected_idx = np.random.choice(num_gts,
-                                               size=max_instances,
-                                               replace=True)
+        random_selected_idx = np.random.choice(
+            num_gts,
+            size=max_num_objects,
+            # size=max_instances,
+            replace=False)
 
-        if self.with_boxes:
-            gt_bboxes = []
-            gt_bboxes_labels = []
-            boxes = []
+        gt_bboxes = []
+        gt_bboxes_labels = []
+        gt_masks = []
 
+        boxes = []
+        point_coords = []
+        point_labels = []
         for idx in random_selected_idx:
-            if self.with_boxes:
-                # add noise to bbox
-                cur_bbox = gt_bboxes_old[idx]
-                cur_label = gt_bboxes_labels_old[idx]
-                gt_bboxes.append(cur_bbox)
-                gt_bboxes_labels.append(cur_label)
-                if self.add_noise:
-                    cur_bbox = bbox_perturbing(cur_bbox,
-                                               std_ratio=bbox_std_ratio,
-                                               max_offset=bbox_max_offset)
-                boxes.append(cur_bbox)
-
             cur_mask = gt_masks_old[idx]
+            if not np.any(cur_mask):  # ensure mask valid
+                continue
+            cur_bbox = gt_bboxes_old[idx]
+            cur_label = gt_bboxes_labels_old[idx]
+            gt_bboxes.append(cur_bbox)
+            gt_bboxes_labels.append(cur_label)
+            if self.add_noise:
+                cur_bbox = bbox_perturbing(cur_bbox,
+                                           std_ratio=bbox_std_ratio,
+                                           max_offset=bbox_max_offset)
+            boxes.append(cur_bbox)
+
             gt_masks.append(cur_mask)
-            if self.with_point:
-                coords, labels = point_sampling(cur_mask,
-                                                num_points=points_per_instance)
-                point_coords.append(coords)
-                point_labels.append(labels)
+            coords, labels = point_sampling(cur_mask,
+                                            num_points=points_per_instance)
 
-        out = dict()
-        gt_masks = np.stack(gt_masks)
-        out.update(gt_masks=gt_masks)
+            point_coords.append(coords)
+            point_labels.append(labels)
 
-        if self.with_boxes:
+        if len(gt_masks):
             gt_bboxes = np.array(gt_bboxes, dtype=np.float32)
             gt_bboxes_labels = np.array(gt_bboxes_labels, dtype=np.int64)
-            boxes = np.array(boxes, dtype=np.float32)
-            # clip
-            boxes[..., 0::2] = boxes[..., 0::2].clip(0, img_w)
-            boxes[..., 1::3] = boxes[..., 1::3].clip(0, img_h)
-            out.update(gt_bboxes=gt_bboxes,
+            gt_masks = np.stack(gt_masks)
+
+        results.update(gt_bboxes=gt_bboxes,
                        gt_bboxes_labels=gt_bboxes_labels,
-                       boxes=boxes)
+                       gt_masks=gt_masks)
 
-        if self.with_point:
-            point_coords = np.stack(point_coords, axis=0)
-            point_labels = np.stack(point_labels, axis=0)
-            out.update(point_coords=point_coords, point_labels=point_labels)
+        # prompt boxes
+        boxes = np.array(boxes, dtype=np.float32)
+        # clip
+        boxes[..., 0::2] = boxes[..., 0::2].clip(0, img_w)
+        boxes[..., 1::3] = boxes[..., 1::3].clip(0, img_h)
+        # prompt point
+        point_coords = np.stack(point_coords, axis=0)
+        point_labels = np.stack(point_labels, axis=0, dtype=np.int64)
+        results.update(boxes=boxes,
+                       point_coords=point_coords,
+                       point_labels=point_labels)
 
-        return out
+        return results
 
 
 @TRANSFORMS.register_module()
@@ -410,7 +404,7 @@ class ResizeLongestSide:
 class PackSamInputs(BaseTransform):
 
     mapping_table = {
-        'gt_bboxes': 'bboxes',
+        # 'gt_bboxes': 'bboxes',
         'gt_bboxes_labels': 'labels',
         'gt_masks': 'masks'
     }
@@ -471,8 +465,11 @@ class PackSamInputs(BaseTransform):
         for key in self.mapping_table.keys():
             if key not in results:
                 continue
-            if key == 'gt_masks' or isinstance(results[key], BaseBoxes):
-                gt_instance[self.mapping_table[key]] = to_tensor(results[key])
+            if key == 'gt_masks':
+                gt_masks = results['gt_masks']
+                if isinstance(gt_masks, BitmapMasks):
+                    gt_masks = gt_masks.to_ndarray()
+                gt_instance[self.mapping_table[key]] = to_tensor(gt_masks)
             else:
                 gt_instance[self.mapping_table[key]] = to_tensor(results[key])
 
@@ -481,9 +478,9 @@ class PackSamInputs(BaseTransform):
             point_labels = to_tensor(results['point_labels'])
             prompt_instance['point_coords'] = point_coords
             prompt_instance['point_labels'] = point_labels
-
-        boxes = to_tensor(results['boxes'].astype(np.float32))
-        prompt_instance['boxes'] = boxes
+        if results.get('boxes', None) is not None:
+            boxes = to_tensor(results['boxes'].astype(np.float32))
+            prompt_instance['boxes'] = boxes
 
         # ---
         # print(len(boxes), len(point_coords), len(point_labels), len(masks))

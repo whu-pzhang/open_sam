@@ -17,8 +17,8 @@ class HQSAMMaskDecoderHQ(MaskDecoder):
     def __init__(self, vit_embed_dim=768, **kwargs):
         super().__init__(**kwargs)
 
-        self.hf_token = nn.Embedding(1, self.transformer_dim)
-        self.hf_mlp = MLP(self.transformer_dim, self.transformer_dim,
+        self.hq_token = nn.Embedding(1, self.transformer_dim)
+        self.hq_mlp = MLP(self.transformer_dim, self.transformer_dim,
                           self.transformer_dim // 8, 3)
         self.num_mask_tokens = self.num_mask_tokens + 1
 
@@ -33,7 +33,7 @@ class HQSAMMaskDecoderHQ(MaskDecoder):
                                kernel_size=2,
                                stride=2))
 
-        self.embedding_encoder = nn.Sequential(
+        self.hq_embedding_encoder = nn.Sequential(
             nn.ConvTranspose2d(self.transformer_dim,
                                self.transformer_dim // 4,
                                kernel_size=2,
@@ -46,7 +46,7 @@ class HQSAMMaskDecoderHQ(MaskDecoder):
                                stride=2),
         )
 
-        self.embedding_maskfeature = nn.Sequential(
+        self.hq_embedding_maskfeature = nn.Sequential(
             nn.Conv2d(self.transformer_dim // 8, self.transformer_dim // 4, 3,
                       1, 1), LayerNorm2d(self.transformer_dim // 4), nn.GELU(),
             nn.Conv2d(self.transformer_dim // 4, self.transformer_dim // 8, 3,

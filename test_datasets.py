@@ -158,6 +158,21 @@ def vis_coco_dataset():
     #                          [0, 0, 255], [159, 129, 183], [0, 255, 0],
     #                          [255, 195, 128]])
 
+    # iSAID
+    # dataset_type = 'mmdet.iSAIDDataset'
+    # data_root = 'data/iSAID_patches'
+    # metainfo = dict(classes=('ship', 'store_tank', 'baseball_diamond',
+    #                          'tennis_court', 'basketball_court',
+    #                          'Ground_Track_Field', 'Bridge', 'Large_Vehicle',
+    #                          'Small_Vehicle', 'Helicopter', 'Swimming_pool',
+    #                          'Roundabout', 'Soccer_ball_field', 'plane',
+    #                          'Harbor'),
+    #                 palette=[(0, 0, 63), (0, 63, 63), (0, 63, 0), (0, 63, 127),
+    #                          (0, 63, 191), (0, 63, 255), (0, 127, 63),
+    #                          (0, 127, 127), (0, 0, 127), (0, 0, 191),
+    #                          (0, 0, 255), (0, 191, 127), (0, 127, 191),
+    #                          (0, 127, 255), (0, 100, 155)])
+
     train_pipeline = [
         dict(type='LoadImageFromFile'),
         dict(type='mmdet.LoadAnnotations', with_bbox=True, with_mask=True),
@@ -185,6 +200,8 @@ def vis_coco_dataset():
         # data_prefix=dict(img='images'),
         # ann_file='annotations/loveda_train.json',
         # data_prefix=dict(img='img_dir/train'),
+        # ann_file='train/instancesonly_filtered_train.json',
+        # data_prefix=dict(img='train/images/'),
         filter_cfg=dict(filter_empty_gt=True, min_size=32),
         pipeline=train_pipeline,
     )
@@ -194,8 +211,10 @@ def vis_coco_dataset():
 
     # data_samples = sample['data_samples']
     # print(data_samples)
+    # quit()
 
     for sample in coco_dataset:
+        # print(sample)
         fig, ax = plt.subplots(1, 1, figsize=(8, 8))
         ax.imshow(sample['img'][..., ::-1])
 
@@ -204,14 +223,13 @@ def vis_coco_dataset():
                 show_mask(mask, ax, random_color=True)
 
         if sample.get('boxes', None) is not None:
-            print(len(sample['boxes']))
             for box in sample['boxes']:
                 show_box(box, ax)
 
         if sample.get('point_coords', None) is not None:
             point_coords = sample['point_coords']  # BxNx2
             point_labels = sample['point_labels']  # BxN
-            show_points(point_coords, point_labels, ax, marker_size=200)
+            show_points(point_coords, point_labels, ax, marker_size=100)
 
         # ax.axis('off')
         plt.tight_layout()
@@ -220,64 +238,33 @@ def vis_coco_dataset():
 
 
 def test_dataloader():
+    from mmengine.runner import Runner
+    from mmengine.utils import ProgressBar
+    from pathlib import Path
 
-    from open_sam.registry import DATA_SAMPLERS, DATASETS
-    from mmengine.registry import FUNCTIONS
-
-    cfg = Config.fromfile('configs/_base_/datasets/whu-building_coco.py')
+    cfg = Config.fromfile('configs/_base_/datasets/isaid_coco.py')
     dataloader_cfg = cfg.train_dataloader
+    dataloader_cfg.sampler.shuffle = False
 
-    dataset_cfg = dataloader_cfg.pop('dataset')
-    dataset = DATASETS.build(dataset_cfg)
+    data_loader = Runner.build_dataloader(dataloader_cfg)
 
-    sampler_cfg = dataloader_cfg.pop('sampler')
-    sampler = DATA_SAMPLERS.build(sampler_cfg,
-                                  default_args=dict(dataset=dataset,
-                                                    seed=None))
-    batch_sampler_cfg = dataloader_cfg.pop('batch_sampler', None)
-    if batch_sampler_cfg is None:
-        batch_sampler = None
-    elif isinstance(batch_sampler_cfg, dict):
-        batch_sampler = DATA_SAMPLERS.build(
-            batch_sampler_cfg,
-            default_args=dict(sampler=sampler,
-                              batch_size=dataloader_cfg.pop('batch_size')))
-
-    # build dataloader
-    init_fn = None
-
-    collate_fn_cfg = dataloader_cfg.pop(
-        'collate_fn',
-        dict(type='pseudo_collate'),  # list
-        # dict(type='default_collate'), # tensor
-    )
-
-    collate_fn_type = collate_fn_cfg.pop('type')
-    if isinstance(collate_fn_type, str):
-        collate_fn = FUNCTIONS.get(collate_fn_type)
-    else:
-        collate_fn = collate_fn_type
-    collate_fn = partial(collate_fn, **collate_fn_cfg)
-
-    data_loader = DataLoader(
-        dataset=dataset,
-        sampler=sampler if batch_sampler is None else None,
-        batch_sampler=batch_sampler,
-        collate_fn=collate_fn,
-        worker_init_fn=init_fn,
-        **dataloader_cfg)
+    pbar = ProgressBar(task_num=len(data_loader))
 
     for data_batch in data_loader:
         inputs = data_batch['inputs']
         data_samples = data_batch['data_samples']
 
-        for data_sample in data_samples:
-            gt_masks = data_sample.gt_instances.masks
-            print(gt_masks.shape)
-            print(data_sample.prompt_instances)
-            break
+        filenames = [Path(d.img_path).name for d in data_samples]
 
-        break
+        # for data_sample in data_samples:
+        #     print(data_sample)
+        #     gt_masks = data_sample.gt_instances.masks
+        #     print(gt_masks.shape)
+        #     print(data_sample.prompt_instances)
+        #     break
+        pbar.update()
+
+        continue
 
 
 if __name__ == '__main__':

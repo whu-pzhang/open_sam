@@ -10,12 +10,11 @@ train_pipeline = [
     dict(type='ResizeLongestEdge', scale=1024),
     dict(
         type='GenerateSAMPrompt',
-        #  prompt_type=['point', 'boxes'],
+        prompt_type=['point', 'boxes'],
         # noise_cfg=dict(bbox_std_ratio=0.1, bbox_max_offset=20),
-        prompt_type='boxes',
         noise_cfg=None,
         max_instances_per_classes=10,
-        points_per_instance=2),
+        points_per_instance=1),
     dict(type='PackSamInputs'),
 ]
 
@@ -54,7 +53,6 @@ val_dataloader = dict(batch_size=1,
                           ann_file='val/instancesonly_filtered_val.json',
                           data_prefix=dict(img='val/images/'),
                           test_mode=True,
-                          filter_cfg=dict(filter_empty_gt=True),
                           pipeline=test_pipeline))
 test_dataloader = val_dataloader
 

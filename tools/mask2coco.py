@@ -179,12 +179,14 @@ def parse_args():
                         default='.png',
                         help='semantic segmentation map suffix')
     parser.add_argument('--reduce-zero-label', action='store_true')
+    parser.add_argument('--ignore-values', type=int, nargs='+', default=[255])
     args = parser.parse_args()
     return args
 
 
 def main():
     args = parse_args()
+
     assert args.out.endswith(
         'json'), 'The output file name must be json suffix'
 
@@ -197,7 +199,7 @@ def main():
 
     # 2 convert to coco format data
     img_infos = collect_annotations(img_files,
-                                    ignore_values=[0, 255],
+                                    ignore_values=args.ignore_values,
                                     reduce_zero_label=args.reduce_zero_label,
                                     nproc=4)
     classes = list_from_file(args.classes)

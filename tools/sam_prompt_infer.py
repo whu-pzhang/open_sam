@@ -254,9 +254,10 @@ class RSDataset(Dataset):
                 x, y, w, h = ann['bbox']
                 cat_id = ann['category_id']
                 instances.append(
-                    dict(cat_id=cat_id,
-                         bbox=[x, y, x + w - 1, y + h - 1],
-                         mask=self.coco.annToMask(ann)))
+                    dict(cat_id=cat_id, bbox=[x, y, x + w - 1, y + h - 1]))
+
+                if ann['segmentation']:
+                    instances.update(mask=self.coco.annToMask(ann))
         else:
             seg_map_path = self.ann_dir / data_info['seg_map']
             seg_map = np.array(Image.open(seg_map_path))
@@ -360,9 +361,16 @@ DATASET_INFO = {
          mode='coco'),
     'nwpu':
     dict(data_root='data/nwpu',
-         img_prefix='images',
+         img_dir='images',
          ann_file='annotations/train.json',
-         mode='coco'),
+         img_suffix='.jpg',
+         mode='coco',
+         classes=('background', 'airplane', 'storage tank', 'baseball diamond',
+                  'tennis court', 'basketball court', 'ground track field',
+                  'vehicle', 'harbor', 'bridge', 'ship'),
+         palette=[(0, 0, 0), (0, 0, 63), (0, 63, 63), (0, 63, 0), (0, 63, 127),
+                  (0, 63, 191), (0, 63, 255), (0, 127, 63), (0, 127, 127),
+                  (0, 0, 127), (0, 0, 191)]),
 }
 
 
@@ -396,7 +404,7 @@ def main():
     if ann_dir is None:
         ann_dir = dataset.data_root
 
-    out_dir = ann_dir.parent / f'sam-{args.model_type}-{args.prompt}-prompt_pred'
+    out_dir = dataset.data_root / f'sam-{args.model_type}-{args.prompt}-prompt_pred'
     out_dir.mkdir(exist_ok=True, parents=True)
     palette = [i for rgb in data_info['palette'] for i in rgb]
 
@@ -440,7 +448,7 @@ def main():
         else:
             seg_maps = np.zeros(img.shape[:2], dtype=np.uint8)
 
-        out_file = out_dir / filename
+        out_file = out_dir / f'{Path(filename).stem}.png'
         # cv2.imwrite(str(out_file), seg_maps)
         seg_maps = Image.fromarray(seg_maps).convert('P')
         seg_maps.putpalette(palette)

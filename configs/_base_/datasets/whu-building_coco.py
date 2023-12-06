@@ -59,6 +59,7 @@ val_dataloader = dict(batch_size=1,
                           ann_file='annotations/whu-building_val.json',
                           data_prefix=dict(img='val/image'),
                           filter_cfg=dict(filter_empty_gt=True),
+                          test_mode=True,
                           pipeline=test_pipeline))
 test_dataloader = val_dataloader
 

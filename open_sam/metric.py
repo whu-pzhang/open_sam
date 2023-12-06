@@ -4,6 +4,7 @@ import numpy as np
 from mmengine.evaluator import BaseMetric
 from mmseg.evaluation import IoUMetric as _IoUMetric
 from mmengine.structures import InstanceData
+from mmdet.structures.mask import BitmapMasks
 
 from .registry import METRICS
 
@@ -34,6 +35,12 @@ class IoU(_IoUMetric):
         masks = instance['masks']
         labels = instance['labels']
 
+        seg_map = torch.zeros(size=masks.shape[1:],
+                              dtype=torch.int,
+                              device=masks.device)
+        if len(labels) == 0 or labels[0] is None:
+            return seg_map
+
         masks_dict = [
             dict(mask=m, label=labels[idx], area=torch.sum(m))
             for idx, m in enumerate(masks)
@@ -42,9 +49,6 @@ class IoU(_IoUMetric):
                               key=(lambda x: x['area']),
                               reverse=True)
 
-        seg_map = torch.zeros(size=masks[0].shape,
-                              dtype=torch.int,
-                              device=masks.device)
         # for idx, mask in enumerate(masks):
         #     seg_map[mask.bool()] = labels[idx].to(torch.int)
         for ann in sorted_masks:

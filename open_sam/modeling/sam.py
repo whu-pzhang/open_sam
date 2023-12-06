@@ -1,4 +1,5 @@
 from typing import Any, Dict, List, Tuple
+import random
 
 import torch
 from torch.nn import functional as F
@@ -10,18 +11,19 @@ from mmdet.models.utils import get_uncertain_point_coords_with_randomness
 from mmcv.ops import point_sample
 
 from open_sam.registry import MODELS
+from open_sam.datasets.sam_data_sample import SampleList, OptSampleList
 from .utils import calc_iou
 
 
 @MODELS.register_module()
 class SAM(BaseModel):
-    mask_threshold: float = 0.0
     image_format: str = 'RGB'
 
     def __init__(self,
                  image_encoder: dict,
                  prompt_encoder: dict,
                  mask_decoder: dict,
+                 mask_threshold: float = 0.,
                  loss_mask: ConfigType = dict(type='mmdet.CrossEntropyLoss',
                                               use_sigmoid=True,
                                               reduction='mean',
@@ -61,6 +63,7 @@ class SAM(BaseModel):
         self.prompt_encoder = MODELS.build(prompt_encoder)
         self.mask_decoder = MODELS.build(mask_decoder)
 
+        self.mask_threshold = mask_threshold
         self.ignore_index = 255
 
         self.register_buffer(
@@ -91,9 +94,28 @@ class SAM(BaseModel):
     def device(self) -> Any:
         return self.pixel_mean.device
 
+    @torch.no_grad()
+    def get_image_embeddings(self, input_images):
+        r"""
+        Returns the image embeddings by passing the pixel values through the image encoder.
+
+        Args:
+            image (`torch.FloatTensor` of shape `(batch_size, num_channels, height, width)`):
+                Input pixel values
+        """
+        image_embeddings = self.image_encoder(input_images)[0]
+        return image_embeddings
+
     def _format_inputs(self, inputs, data_samples):
         '''
         batched_inputs: List[dict]  
+
+        Returns:
+            - image
+            - original_size
+            - point_coords
+            - point_labels
+            - boxes
         '''
         batched_inputs = []
         for idx, (img, data_sample) in enumerate(zip(inputs, data_samples)):
@@ -118,12 +140,33 @@ class SAM(BaseModel):
                 data_samples=None,
                 mode='loss',
                 multimask_output=False):
+        '''
+        Args:
+            inputs (torch.Tensor): The input tensor with shape (N, C, ...) in
+                general.
+            data_samples (list[:obj:`SamDataSample`]): The sam data samples.
+                It usually includes information such as `metainfo` and
+                `gt_masks`. Default to None.
+            mode (str): Return what kind of value. Defaults to 'tensor'.
+
+        Returns:
+            The return type depends on ``mode``.
+
+            - If ``mode="tensor"``, return a tensor or a tuple of tensor.
+            - If ``mode="predict"``, return a list of :obj:`SamDataSample`.
+            - If ``mode="loss"``, return a dict of tensor.
+        '''
         batched_inputs = self._format_inputs(inputs, data_samples)
 
         if mode == 'loss':
             return self.loss(batched_inputs, data_samples, multimask_output)
-        else:
+        elif mode == 'predict':
             return self.predict(batched_inputs, data_samples, multimask_output)
+        elif mode == 'tensor':
+            return self._forward(batched_inputs, multimask_output)
+        else:
+            raise RuntimeError(f'Invalid mode "{mode}". '
+                               'Only supports loss, predict and tensor mode')
 
     def loss(self, batch_input, data_samples, multimask_output=False):
         low_res_logits, iou_predictions = self._forward(
@@ -192,9 +235,9 @@ class SAM(BaseModel):
         return loss_dict
 
     def predict(self, batch_input, batch_data_samples, multimask_output=False):
-
         pred_masks, iou_predictions = self._forward(batch_input,
                                                     multimask_output)
+
         outputs = []
         for image_record, low_res_mask, iou_prediction in zip(
                 batch_input, pred_masks, iou_predictions):
@@ -235,18 +278,16 @@ class SAM(BaseModel):
                 idx = torch.argmax(pred_output['iou_predictions'])
                 iou_scores = iou_scores[:, idx]
                 pred_masks = pred_masks[:, idx:idx + 1]
-            else:
-                pred_masks = pred_masks
-                iou_scores = iou_scores
-                pred_masks = pred_masks.squeeze(1)
-                pred_masks = pred_masks.squeeze(1)
-                iou_scores = iou_scores
             pred_masks = pred_masks.squeeze(1)
 
             pred_instances = InstanceData()
-            pred_instances.masks = pred_masks
-            pred_instances.scores = iou_scores
-            pred_instances.labels = data_sample.gt_instances['labels']
+            pred_instances.masks = pred_masks.detach()
+            pred_instances.scores = iou_scores.detach()
+
+            if data_sample.gt_instances:
+                pred_instances.labels = data_sample.gt_instances['labels']
+            else:
+                pred_instances.labels = [None] * len(pred_masks)
 
             data_sample.pred_instances = pred_instances
 
@@ -296,12 +337,11 @@ class SAM(BaseModel):
                 shape BxCxHxW, where H=W=256. Can be passed as mask input
                 to subsequent iterations of prediction.
         """
-        if self.data_preprocessor is None:
-            input_images = torch.stack(
-                [self.preprocess(x['image']) for x in batched_input], dim=0)
-        else:
-            input_images = torch.stack([x['image'] for x in batched_input],
-                                       dim=0)
+        # if self.data_preprocessor is None:
+        #     input_images = torch.stack(
+        #         [self.preprocess(x['image']) for x in batched_input], dim=0)
+        # else:
+        input_images = torch.stack([x['image'] for x in batched_input], dim=0)
         image_embeddings = self.image_encoder(input_images)[0]
 
         pred_masks_list = []
@@ -316,19 +356,54 @@ class SAM(BaseModel):
             sparse_embeddings, dense_embeddings = self.prompt_encoder(
                 points=points,
                 boxes=image_record.get('boxes', None),
-                masks=image_record.get('mask_inputs', None),
-            )
+                masks=image_record.get('mask_inputs', None))
+
             low_res_masks, iou_predictions = self.mask_decoder(
                 image_embeddings=curr_embedding.unsqueeze(0),
                 image_positional_embeddings=self.prompt_encoder.get_dense_pe(),
                 sparse_prompt_embeddings=sparse_embeddings,
                 dense_prompt_embeddings=dense_embeddings,
-                multimask_output=multimask_output,
-            )
+                multimask_output=multimask_output)
+
             pred_masks_list.append(low_res_masks)
             iou_predictions_list.append(iou_predictions)
 
         return pred_masks_list, iou_predictions_list
+
+    def _forward_(self,
+                  batch_inputs: torch.Tensor,
+                  batch_data_samples: OptSampleList = None):
+        image_embeddings = self.image_encoder(batch_inputs)
+
+        num_prompts = batch_data_samples[0].prompt_instances.num_prompts
+        # Expand per-image data in batch direction to be per-mask
+        image_embeddings = torch.repeat_interleave(image_embeddings,
+                                                   num_prompts,
+                                                   dim=0)
+
+    def _stack_batch(self, batch_data_samples: SampleList):
+        '''
+        Should ensure the same prompt mode in each batch.
+        '''
+        valid_prompts = ['point', 'bbox']
+        prompt_type = random.choice(valid_prompts)
+        batched_samples = dict()
+
+        point_coords = []
+        point_labels = []
+        boxes = []
+        gt_masks = []
+
+        for data_samples in batch_data_samples:
+            gt_instances = data_samples.gt_instances
+            prompt_instances = data_samples.prompt_instances
+
+            gt_masks.append(gt_instances.gt_masks)
+            if prompt_type == 'point':
+                point_coords.append(prompt_instances['point_coords'])
+                point_labels.append(prompt_instances['point_labels'])
+            elif prompt_type == 'bbox':
+                boxes.append(prompt_instances['boxes'])
 
     def postprocess_masks(
         self,
