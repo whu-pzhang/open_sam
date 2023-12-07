@@ -267,7 +267,61 @@ def test_dataloader():
         continue
 
 
+def test_sam_dataset():
+
+    train_pipeline = [
+        dict(type='LoadImageFromFile'),
+        dict(type='LoadAnnotations', with_bbox=True, with_mask=True),
+        dict(type='mmdet.Resize', scale=(2048, 1024), keep_ratio=True),
+        dict(type='mmdet.RandomFlip', prob=0.5),
+        dict(type='ResizeLongestEdge', scale=1024),
+        dict(
+            type='GenerateSAMPrompt',
+            prompt_type=['point', 'boxes'],
+            # prompt_type='boxes',
+            max_instances_per_classes=10,
+            points_per_instance=1,
+            noise_cfg=None,
+        ),
+        # dict(type='PackSamInputs')
+    ]
+    sam_dataset_cfg = dict(type='SamDataset',
+                           data_root='data/rs_sam_data',
+                           indices=range(4000, 4010),
+                           filter_cfg=dict(min_size=32),
+                           pipeline=train_pipeline)
+
+    dataset = DATASETS.build(sam_dataset_cfg)
+
+    sample = dataset[0]
+
+    for sample in dataset:
+        print(sample['img_path'])
+        # print(sample)
+        fig, ax = plt.subplots(1, 1, figsize=(8, 8))
+        ax.imshow(sample['img'][..., ::-1])
+
+        if sample.get('gt_masks', None) is not None:
+            for idx, mask in enumerate(sample['gt_masks']):
+                show_mask(mask, ax, random_color=True)
+
+        if sample.get('boxes', None) is not None:
+            for box in sample['boxes']:
+                show_box(box, ax)
+
+        if sample.get('point_coords', None) is not None:
+            point_coords = sample['point_coords']  # BxNx2
+            point_labels = sample['point_labels']  # BxN
+            show_points(point_coords, point_labels, ax, marker_size=100)
+
+        # ax.axis('off')
+        plt.tight_layout()
+        # plt.savefig('junk.jpg')
+        plt.show()
+
+
 if __name__ == '__main__':
     # vis_seg_dataset()
-    vis_coco_dataset()
+    # vis_coco_dataset()
     # test_dataloader()
+    test_sam_dataset()

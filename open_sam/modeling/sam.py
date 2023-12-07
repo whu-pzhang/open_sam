@@ -285,7 +285,10 @@ class SAM(BaseModel):
             pred_instances.scores = iou_scores.detach()
 
             if data_sample.gt_instances:
-                pred_instances.labels = data_sample.gt_instances['labels']
+                if data_sample.gt_instances.get('labels', None) is not None:
+                    pred_instances.labels = data_sample.gt_instances['labels']
+                else:
+                    pred_instances.labels = [1] * len(pred_masks)
             else:
                 pred_instances.labels = [None] * len(pred_masks)
 
