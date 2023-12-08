@@ -88,6 +88,7 @@ class SAM(BaseModel):
         self.loss_iou = MODELS.build(loss_iou)
 
     def init_weights(self):
+        #TODO: positional embedding resize
         super().init_weights()
 
     @property
@@ -105,6 +106,9 @@ class SAM(BaseModel):
         """
         image_embeddings = self.image_encoder(input_images)[0]
         return image_embeddings
+
+    def prompt_and_mask_decoder(self):
+        pass
 
     def _format_inputs(self, inputs, data_samples):
         '''

@@ -396,6 +396,7 @@ def parse_args():
 def main():
 
     args = parse_args()
+    print(args)
 
     data_info = DATASET_INFO[args.dataset]
     dataset = RSDataset(**data_info, num_points=args.num_points)
