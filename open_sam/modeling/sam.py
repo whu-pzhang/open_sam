@@ -170,10 +170,21 @@ class SAM(BaseModel):
             raise RuntimeError(f'Invalid mode "{mode}". '
                                'Only supports loss, predict and tensor mode')
 
+    def _stack_batch_gt(self, data_samples: SampleList) -> torch.Tensor:
+        device = data_samples[0].gt_instances.bboxes.device
+        gt_masks = [
+            data_sample.gt_instances.masks.to_tensor(torch.long, device)
+            for data_sample in data_samples
+        ]
+        return torch.stack(gt_masks, dim=0)
+
     def loss(self, batch_input, data_samples, multimask_output=False):
+        print(data_samples)
+        gt_masks = self._stack_batch_gt(data_samples)
+        print(gt_masks.shape)
+
         low_res_logits, iou_predictions = self._forward(
             batch_input, multimask_output=multimask_output)
-        print(low_res_logits.shape, iou_predictions.shape)
 
         loss_dict = dict()
         batch_size = len(data_samples)
