@@ -77,13 +77,15 @@ class SamDataPreprocessor(BaseDataPreprocessor):
         inputs = data['inputs']
         data_samples = data.get('data_samples', None)
 
+        images = inputs['image']
         # TODO: whether normalize should be after stack_batch
-        if self.channel_conversion and inputs[0].size(0) == 3:
-            inputs = [_input[[2, 1, 0], ...] for _input in inputs]
+        if self.channel_conversion and images[0].size(0) == 3:
+            images = [_image[[2, 1, 0], ...] for _image in images]
 
-        inputs = [_input.float() for _input in inputs]
+        images = [_image.float() for _image in images]
         if self._enable_normalize:
-            inputs = [(_input - self.mean) / self.std for _input in inputs]
+            images = [(_image - self.mean) / self.std for _image in images]
+        inputs['image'] = images
 
         if training:
             assert data_samples is not None, ('During training, ',
@@ -108,5 +110,8 @@ class SamDataPreprocessor(BaseDataPreprocessor):
                     data_sample.set_metainfo({**pad_info})
             else:
                 inputs = torch.stack(inputs, dim=0)
+
+        # for k, v in inputs.items():
+        #     print(f'{k} = {v.shape}')
 
         return dict(inputs=inputs, data_samples=data_samples)

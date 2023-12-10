@@ -101,7 +101,7 @@ def generate_labelme_json(binary_masks, labels, image_size, image_path=None):
     return json_dict
 
 
-def stack_batch(inputs: List[torch.Tensor],
+def stack_batch(inputs: dict[List[torch.Tensor]],
                 data_samples: Optional[SampleList] = None,
                 size: Optional[tuple] = None,
                 pad_val: Union[int, float] = 0,
@@ -110,7 +110,7 @@ def stack_batch(inputs: List[torch.Tensor],
     to the max shape use the right bottom padding mode.
 
     Args:
-        inputs (List[Tensor]): The input multiple tensors. each is a
+        inputs (Dict[List[Tensor]]): The input multiple tensors. each is a
             CHW 3D-tensor.
         data_samples (list[:obj:`SamDataSample`]): The list of data samples.
             It usually includes information such as `gt_masks`.
@@ -123,14 +123,16 @@ def stack_batch(inputs: List[torch.Tensor],
        Tensor: The 4D-tensor.
        List[:obj:`SegDataSample`]: After the padding of the gt_seg_map.
     """
-    padded_inputs = []
+    padded_inputs = dict()
     padded_samples = []
 
-    inputs_sizes = [(img.shape[-2], img.shape[-1]) for img in inputs]
+    inputs_sizes = [(img.shape[-2], img.shape[-1]) for img in inputs['image']]
     max_size = np.stack(inputs_sizes).max(0)
 
-    for i in range(len(inputs)):
-        tensor = inputs[i]
+    padded_imgs = []
+    images = inputs.pop('image')
+    for i in range(len(images)):
+        tensor = images[i]
         if size is not None:
             width = max(size[-1] - tensor.shape[-1], 0)
             height = max(size[-2] - tensor.shape[-2], 0)
@@ -141,7 +143,7 @@ def stack_batch(inputs: List[torch.Tensor],
 
         # pad img
         pad_img = F.pad(tensor, padding_size, value=pad_val)
-        padded_inputs.append(pad_img)
+        padded_imgs.append(pad_img)
 
         # pad gt_sem_seg
         if data_samples is not None:
@@ -167,4 +169,10 @@ def stack_batch(inputs: List[torch.Tensor],
                 dict(img_padding_size=padding_size,
                      pad_shape=pad_img.shape[-2:]))
 
-    return torch.stack(padded_inputs, dim=0), padded_samples
+    padded_inputs['image'] = torch.stack(padded_imgs, dim=0)
+    for k, v in inputs.items():
+        v = torch.stack(v, dim=0)
+        # merge image_batch and prompt_batch
+        padded_inputs[k] = v.reshape(-1, *v.shape[2:])
+
+    return padded_inputs, padded_samples

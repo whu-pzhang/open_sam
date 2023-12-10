@@ -49,8 +49,9 @@ val_dataloader = dict(batch_size=1,
                       sampler=dict(type='DefaultSampler', shuffle=False),
                       dataset=dict(type=dataset_type,
                                    data_root=data_root,
-                                   data_prefix=dict(img_path='val',
-                                                    json_path='val'),
+                                   data_prefix=dict(
+                                       img_path='whu-building_val',
+                                       json_path='whu-building_val'),
                                    filter_cfg=dict(filter_empty_gt=True),
                                    test_mode=True,
                                    pipeline=test_pipeline))

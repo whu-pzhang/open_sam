@@ -209,9 +209,8 @@ def vis_coco_dataset():
 
     sample = coco_dataset[10]
 
-    # data_samples = sample['data_samples']
-    # print(data_samples)
-    # quit()
+    print(sample.keys())
+    quit()
 
     for sample in coco_dataset:
         # print(sample)
@@ -274,26 +273,30 @@ def test_sam_dataset():
         dict(type='LoadAnnotations', with_bbox=True, with_mask=True),
         dict(type='mmdet.Resize', scale=(2048, 1024), keep_ratio=True),
         dict(type='mmdet.RandomFlip', prob=0.5),
-        dict(type='ResizeLongestEdge', scale=1024),
+        # dict(type='ResizeLongestEdge', scale=1024),
         dict(
             type='GenerateSAMPrompt',
             prompt_type=['point', 'boxes'],
             # prompt_type='boxes',
-            max_instances_per_classes=10,
-            points_per_instance=1,
+            max_instances_per_classes=5,
+            points_per_instance=2,
             noise_cfg=None,
         ),
-        # dict(type='PackSamInputs')
+        dict(type='PackSamInputs')
     ]
     sam_dataset_cfg = dict(type='SamDataset',
-                           data_root='data/rs_sam_data',
-                           indices=range(4000, 4010),
+                           data_root='data/rs_sam_data/train',
+                           indices=range(1000, 1010),
                            filter_cfg=dict(min_size=32),
                            pipeline=train_pipeline)
 
     dataset = DATASETS.build(sam_dataset_cfg)
 
     sample = dataset[0]
+
+    for k, v in sample.items():
+        print(f'{k} = {v}')
+    quit()
 
     for sample in dataset:
         print(sample['img_path'])
@@ -306,7 +309,7 @@ def test_sam_dataset():
                 show_mask(mask, ax, random_color=True)
 
         if sample.get('boxes', None) is not None:
-            for box in sample['boxes']:
+            for box in sample['boxes'].numpy():
                 show_box(box, ax)
 
         if sample.get('point_coords', None) is not None:
