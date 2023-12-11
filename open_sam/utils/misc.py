@@ -1,4 +1,4 @@
-from typing import List, Union, Optional
+from typing import List, Union, Optional, Mapping
 
 import cv2
 import numpy as np
@@ -101,7 +101,7 @@ def generate_labelme_json(binary_masks, labels, image_size, image_path=None):
     return json_dict
 
 
-def stack_batch(inputs: dict[List[torch.Tensor]],
+def stack_batch(inputs: Mapping[str, List[torch.Tensor]],
                 data_samples: Optional[SampleList] = None,
                 size: Optional[tuple] = None,
                 pad_val: Union[int, float] = 0,

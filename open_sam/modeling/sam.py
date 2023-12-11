@@ -313,7 +313,7 @@ class SAM(BaseModel):
         return batch_data_samples
 
     def _forward(self,
-                 inputs: dict[torch.Tensor],
+                 inputs: torch.Tensor,
                  data_samples: OptSampleList = None,
                  multimask_output: bool = False):
         image_embeddings = self.image_encoder(inputs['image'])[0]
