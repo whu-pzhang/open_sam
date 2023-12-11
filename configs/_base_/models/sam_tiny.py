@@ -41,6 +41,7 @@ model = dict(
                    gamma=2.0,
                    alpha=0.25,
                    loss_weight=20.0),
+    # loss_mask=dict(type='FocalLoss', gamma=2.0, alpha=0.25, loss_weight=20.0),
     loss_dice=dict(type='mmdet.DiceLoss',
                    use_sigmoid=True,
                    activate=True,

@@ -69,7 +69,7 @@ class MaskDecoder(nn.Module):
     def forward(
             self,
             image_embeddings: Tensor,
-            image_positional_embeddings: Tensor,
+            image_pe: Tensor,
             sparse_prompt_embeddings: Tensor,
             dense_prompt_embeddings: Tensor,
             multimask_output: bool,
@@ -82,7 +82,7 @@ class MaskDecoder(nn.Module):
 
         Arguments:
             image_embeddings (Tensor): the embeddings from the image encoder
-            image_positional_embeddings (Tensor): positional encoding with 
+            image_pe (Tensor): positional encoding with 
                 the shape of image_embeddings
             sparse_prompt_embeddings (Tensor): the embeddings of
                 the points and boxes
@@ -108,7 +108,7 @@ class MaskDecoder(nn.Module):
 
         masks, iou_pred = self.predict_masks(
             image_embeddings=image_embeddings,
-            image_pe=image_positional_embeddings,
+            image_pe=image_pe,
             sparse_prompt_embeddings=sparse_prompt_embeddings,
             dense_prompt_embeddings=dense_prompt_embeddings,
         )

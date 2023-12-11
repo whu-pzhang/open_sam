@@ -10,9 +10,7 @@ train_pipeline = [
     dict(type='ResizeLongestEdge', scale=1024),
     dict(
         type='GenerateSAMPrompt',
-        prompt_type=['point', 'boxes'],
         # noise_cfg=dict(bbox_std_ratio=0.1, bbox_max_offset=20),
-        # prompt_type='boxes',
         noise_cfg=None,
         max_instances_per_classes=10,
         points_per_instance=1),
@@ -39,7 +37,8 @@ train_dataloader = dict(
     batch_sampler=dict(type='mmdet.AspectRatioBatchSampler'),
     dataset=dict(type=dataset_type,
                  data_root=data_root,
-                 data_prefix=dict(img_path='train', json_path='train'),
+                 data_prefix=dict(img_path='train_whu-building',
+                                  json_path='train_whu-building'),
                  filter_cfg=dict(min_size=32),
                  pipeline=train_pipeline))
 

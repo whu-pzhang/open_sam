@@ -4,6 +4,7 @@ from pathlib import Path
 import json
 
 import cv2
+from PIL import Image
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.collections import PatchCollection, PolyCollection
@@ -47,8 +48,9 @@ def show_sa1b_json(file_stem_list, data_root):
         img_info = anno_info['image']
 
         img_file = osp.join(data_root, img_info['file_name'])
-        image = cv2.imread(img_file)
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        # image = cv2.imread(img_file)
+        # image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        image = np.array(Image.open(img_file))
 
         plt.figure()
         plt.imshow(image)

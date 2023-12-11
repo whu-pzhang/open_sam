@@ -24,8 +24,10 @@ def collect_image_files(img_dir,
     if split is None:
         images_generator = scandir(img_dir, suffix=img_suffix, recursive=True)
         for image_path in track_iter_progress(list(images_generator)):
+            img_stem = image_path[:-len(img_suffix)]
+
             image_path = Path(img_dir) / image_path
-            mask_path = Path(ann_dir) / (image_path.stem + seg_map_suffix)
+            mask_path = Path(ann_dir) / (img_stem + seg_map_suffix)
 
             img_files.append((image_path, mask_path))
     else:
@@ -65,6 +67,10 @@ def mask2json(data_info, ignore_values=[0, 255], reduce_zero_label=False):
                     width=img.width)
 
     sem_seg_map = mmcv.imread(mask_file, flag='unchanged', backend='pillow')
+    if sem_seg_map.ndim == 3:
+        sem_seg_map = sem_seg_map[..., 0]
+    if sem_seg_map.max() == 255:
+        sem_seg_map = sem_seg_map / 255
     sem_seg_map = sem_seg_map.astype(np.uint8)
     if reduce_zero_label:
         sem_seg_map[sem_seg_map == 0] = 255

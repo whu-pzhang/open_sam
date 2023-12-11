@@ -237,8 +237,7 @@ class SamPredictor:
         # Predict masks
         low_res_masks, iou_predictions = self.model.mask_decoder(
             image_embeddings=self.features,
-            image_positional_embeddings=self.model.prompt_encoder.get_dense_pe(
-            ),
+            image_pe=self.model.prompt_encoder.get_dense_pe(),
             sparse_prompt_embeddings=sparse_embeddings,
             dense_prompt_embeddings=dense_embeddings,
             multimask_output=multimask_output,

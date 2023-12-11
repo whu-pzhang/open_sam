@@ -150,13 +150,11 @@ def stack_batch(inputs: dict[List[torch.Tensor]],
             data_sample = data_samples[i]
             pad_shape = None
 
-            if 'gt_masks' in data_sample:
-                gt_masks = data_sample.gt_instances.data
-                del data_sample.gt_instances.data
-                data_sample.gt_instances.data = F.pad(gt_masks.unsqueeze(1),
-                                                      padding_size,
-                                                      value=mask_pad_val)
-                pad_shape = data_sample.gt_instances.shape
+            if 'gt_instances' in data_sample:
+                masks = data_sample.gt_instances.masks
+                pad_shape = pad_img.shape[-2:]
+                data_sample.gt_instances.masks = masks.pad(
+                    pad_shape, pad_val=mask_pad_val)
 
             data_sample.set_metainfo({
                 'img_shape': tensor.shape[-2:],
