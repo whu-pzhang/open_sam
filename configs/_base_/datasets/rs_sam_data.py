@@ -39,7 +39,8 @@ train_dataloader = dict(
     batch_sampler=dict(type='mmdet.AspectRatioBatchSampler'),
     dataset=dict(type=dataset_type,
                  data_root=data_root,
-                 data_prefix=dict(img_path='train', json_path='train'),
+                 data_prefix=dict(img_path='train_whu-building',
+                                  json_path='train_whu-building'),
                  filter_cfg=dict(min_size=32),
                  pipeline=train_pipeline))
 
@@ -49,9 +50,9 @@ val_dataloader = dict(batch_size=1,
                       sampler=dict(type='DefaultSampler', shuffle=False),
                       dataset=dict(type=dataset_type,
                                    data_root=data_root,
-                                   data_prefix=dict(img_path='val',
-                                                    json_path='val'),
-                                   filter_cfg=dict(filter_empty_gt=True),
+                                   data_prefix=dict(
+                                       img_path='val_whu-building',
+                                       json_path='val_whu-building'),
                                    test_mode=True,
                                    pipeline=test_pipeline))
 test_dataloader = val_dataloader
