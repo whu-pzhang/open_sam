@@ -1,8 +1,23 @@
 from collections import OrderedDict
 import argparse
 from pathlib import Path
+import os
+from hashlib import sha256
 
 import torch
+
+BLOCK_SIZE = 128 * 1024
+
+
+def sha256sum(filename: str) -> str:
+    """Compute SHA256 message digest from a file."""
+    hash_func = sha256()
+    byte_array = bytearray(BLOCK_SIZE)
+    memory_view = memoryview(byte_array)
+    with open(filename, 'rb', buffering=0) as file:
+        for block in iter(lambda: file.readinto(memory_view), 0):
+            hash_func.update(memory_view[:block])
+    return hash_func.hexdigest()
 
 
 def convert_tinyvit(weight):
@@ -47,7 +62,7 @@ def convert_weights(ckpt):
 
     # extract image cncoder weighs
     image_encoder_ckpt = OrderedDict()
-    for k, v in original_model.items():
+    for k, v in ckpt.items():
         if k.startswith('image_encoder'):
             image_encoder_ckpt[k.replace('image_encoder.', '')] = v
         else:
@@ -61,9 +76,18 @@ def convert_weights(ckpt):
     return new_ckpt
 
 
+def process_checkpoint(in_file, out_file):
+    original_model = torch.load(in_file, map_location='cpu')
+    converted_model = convert_weights(original_model)
+    torch.save(converted_model, out_file)
+    sha = sha256sum(in_file)
+    final_file = out_file.rstrip('.pth') + f'-{sha[:8]}.pth'
+    os.rename(out_file, final_file)
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Convert model keys')
-    parser.add_argument('src', help='src detectron model path')
+    parser.add_argument('src', help='src model path')
     parser.add_argument('dst', help='save path')
     args = parser.parse_args()
     dst = Path(args.dst)
@@ -72,7 +96,4 @@ if __name__ == '__main__':
         exit(1)
     dst.parent.mkdir(parents=True, exist_ok=True)
 
-    original_model = torch.load(args.src, map_location='cpu')
-    # print(original_model.keys())
-    converted_model = convert_weights(original_model)
-    torch.save(converted_model, args.dst)
+    process_checkpoint(args.src, args.dst)

@@ -1,19 +1,30 @@
+import os
 from collections import OrderedDict
-
+from hashlib import sha256
 import argparse
 from pathlib import Path
 
 import torch
+
+BLOCK_SIZE = 128 * 1024
+
+
+def sha256sum(filename: str) -> str:
+    """Compute SHA256 message digest from a file."""
+    hash_func = sha256()
+    byte_array = bytearray(BLOCK_SIZE)
+    memory_view = memoryview(byte_array)
+    with open(filename, 'rb', buffering=0) as file:
+        for block in iter(lambda: file.readinto(memory_view), 0):
+            hash_func.update(memory_view[:block])
+    return hash_func.hexdigest()
 
 
 def convert_image_encoder(ckpt):
     new_ckpt = OrderedDict()
 
     for k, v in ckpt.items():
-        if k.startswith('norm'):
-            new_k = k.replace('norm.', 'ln1.')
-
-        elif k.startswith('patch_embed'):
+        if k.startswith('patch_embed'):
             if 'proj' in k:
                 new_k = k.replace('proj', 'projection')
             else:
@@ -43,7 +54,7 @@ def convert_weights(ckpt):
 
     # extract image cncoder weighs
     image_encoder_ckpt = OrderedDict()
-    for k, v in original_model.items():
+    for k, v in ckpt.items():
         if k.startswith('image_encoder'):
             image_encoder_ckpt[k.replace('image_encoder.', '')] = v
         else:
@@ -57,6 +68,15 @@ def convert_weights(ckpt):
     return new_ckpt
 
 
+def process_checkpoint(in_file, out_file):
+    original_model = torch.load(in_file, map_location='cpu')
+    converted_model = convert_weights(original_model)
+    torch.save(converted_model, out_file)
+    sha = sha256sum(in_file)
+    final_file = out_file.rstrip('.pth') + f'-{sha[:8]}.pth'
+    os.rename(out_file, final_file)
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Convert model keys')
     parser.add_argument('src', help='src detectron model path')
@@ -68,6 +88,4 @@ if __name__ == '__main__':
         exit(1)
     dst.parent.mkdir(parents=True, exist_ok=True)
 
-    original_model = torch.load(args.src, map_location='cpu')
-    converted_model = convert_weights(original_model)
-    torch.save(converted_model, args.dst)
+    process_checkpoint(args.src, args.dst)

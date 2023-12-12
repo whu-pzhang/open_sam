@@ -1,4 +1,5 @@
 from typing import Any, Dict, List, Tuple
+import random
 
 import torch
 from torch.nn import functional as F
@@ -155,6 +156,7 @@ class SAM(BaseModel):
              multimask_output: bool = False):
         gt_masks = self._stack_batch_gt(data_samples)
 
+        multimask_output = True if random.random() > 0.5 else False
         low_res_logits, iou_predictions = self._forward(
             inputs, multimask_output)
 

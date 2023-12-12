@@ -12,7 +12,7 @@ from .mask_decoder import MaskDecoder, MLP
 
 
 @MODELS.register_module()
-class HQSAMMaskDecoderHQ(MaskDecoder):
+class HQSamMaskDecoder(MaskDecoder):
 
     def __init__(self, vit_embed_dim=768, **kwargs):
         super().__init__(**kwargs)
@@ -118,13 +118,10 @@ class HQSAMMaskDecoderHQ(MaskDecoder):
             return masks_sam, masks_hq
 
     def predict_masks(
-        self,
-        image_embeddings: torch.Tensor,
-        image_pe: torch.Tensor,
-        sparse_prompt_embeddings: torch.Tensor,
-        dense_prompt_embeddings: torch.Tensor,
-        hq_feature: torch.Tensor,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+            self, image_embeddings: torch.Tensor, image_pe: torch.Tensor,
+            sparse_prompt_embeddings: torch.Tensor,
+            dense_prompt_embeddings: torch.Tensor,
+            hq_feature: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """Predicts masks. See 'forward' for more details."""
 
         output_tokens = torch.cat([
