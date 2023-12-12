@@ -22,12 +22,14 @@ param_scheduler = [
 ]
 
 # optimizer
-optim_wrapper = dict(type='AmpOptimWrapper',
-                     optimizer=dict(type='Adam',
-                                    lr=1e-4,
-                                    betas=(0.9, 0.999),
-                                    eps=1e-08,
-                                    weight_decay=0))
+optim_wrapper = dict(
+    type='AmpOptimWrapper',
+    dtype='float16',  # (float16, bfloat16, None)
+    optimizer=dict(type='Adam',
+                   lr=1e-4,
+                   betas=(0.9, 0.999),
+                   eps=1e-08,
+                   weight_decay=0))
 
 default_hooks = dict(checkpoint=dict(interval=1, max_keep_ckpts=2))
 
