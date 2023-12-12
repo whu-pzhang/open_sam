@@ -99,9 +99,9 @@ dev 分支 `multimask_output=random`
 
 | Model    | Finetune dataset | whu-building | loveda | potsdam | Mean | Epoch |
 | -------- | ---------------- | ------------ | ------ | ------- | ---- | ----- |
-| SAM-tiny | whu-building     | 89.22        | 58.25  | 69.05   |      | 12    |
-| SAM-tiny | loveda           | 85.33        | 61.75  | 69.69   |      | 12    |
-| SAM-tiny | potsdam          | 82.34        | 62.42  | 77.91   |      | 12    |
+| SAM-tiny | whu-building     | 88.78        | 49.03  | 53.28   |      | 12    |
+| SAM-tiny | loveda           |              |        |         |      | 12    |
+| SAM-tiny | potsdam          |              |        |         |      | 12    |
 
 
 ## Acknowledgement
