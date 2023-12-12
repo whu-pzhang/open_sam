@@ -3,7 +3,7 @@ data_preprocessor = dict(type='SamDataPreprocessor',
                          mean=[123.675, 116.28, 103.53],
                          std=[58.395, 57.12, 57.375],
                          bgr_to_rgb=True,
-                         pad_size=(1024, 1024))
+                         size=(1024, 1024))
 
 checkpoint = 'weights/sam_vit-tiny.pth'  # noqa
 model = dict(

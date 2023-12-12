@@ -74,16 +74,25 @@ with clutter
 
 | Model    | Prompt Mode | Style             | whu-building | loveda | potsdam | Epoch |
 | -------- | ----------- | ----------------- | ------------ | ------ | ------- | ----- |
-| SAM-Tiny | bbox        | Finetune(decoder) | 93.77        |        |         |       |
-|          | 1 pt        |                   | 82.08        |        |         |       |
+| SAM-Tiny | bbox        | Finetune(decoder) | 93.68        |        |         |       |
+|          | 1 pt        |                   | 86.27        |        |         |       |
 
 
-性能对比
+main 分支 `multimask_output=False`
 
 | Model    | Finetune dataset | whu-building | loveda | potsdam | Epoch |
 | -------- | ---------------- | ------------ | ------ | ------- | ----- |
 | SAM-tiny | whu-building     | 93.91        | 58.26  | 68.94   | 12    |
 | SAM-tiny | loveda           | 91.71        | 57.20  | 62.34   | 12    |
+| SAM-tiny | potsdam          | 90.73        | 59.23  | 72.86   | 12    |
+
+
+dev 分支 `multimask_output=False`
+
+| Model    | Finetune dataset | whu-building | loveda | potsdam | Epoch |
+| -------- | ---------------- | ------------ | ------ | ------- | ----- |
+| SAM-tiny | whu-building     | 93.68        | 47.04  | 48.35   | 12    |
+| SAM-tiny | loveda           | 91.75        | 57.20  | 62.34   | 12    |
 | SAM-tiny | potsdam          | 90.73        | 59.23  | 72.86   | 12    |
 
 

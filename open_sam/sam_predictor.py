@@ -165,8 +165,7 @@ class SamPredictor:
             box_torch,
             mask_input_torch,
             multimask_output,
-            return_logits=return_logits,
-        )
+            return_logits=return_logits)
 
         masks = masks[0].detach().cpu().numpy()
         iou_predictions = iou_predictions[0].detach().cpu().numpy()
@@ -229,20 +228,15 @@ class SamPredictor:
 
         # Embed prompts
         sparse_embeddings, dense_embeddings = self.model.prompt_encoder(
-            points=points,
-            boxes=boxes,
-            masks=mask_input,
-        )
+            points=points, boxes=boxes, masks=mask_input)
 
         # Predict masks
         low_res_masks, iou_predictions = self.model.mask_decoder(
             image_embeddings=self.features,
-            image_positional_embeddings=self.model.prompt_encoder.get_dense_pe(
-            ),
+            image_pe=self.model.prompt_encoder.get_dense_pe(),
             sparse_prompt_embeddings=sparse_embeddings,
             dense_prompt_embeddings=dense_embeddings,
-            multimask_output=multimask_output,
-        )
+            multimask_output=multimask_output)
 
         # Upscale the masks to the original image resolution
         masks = self.model.postprocess_masks(low_res_masks, self.input_size,
