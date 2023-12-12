@@ -192,7 +192,6 @@ class SAM(BaseModel):
     def loss(self, batch_input, data_samples, multimask_output):
         gt_masks = self._stack_batch_gt(data_samples)
 
-        multimask_output = True if random.random() > 0.5 else False
         low_res_logits, iou_scores = self._forward(
             batch_input, multimask_output=multimask_output)
         # handle multimask_output=True
