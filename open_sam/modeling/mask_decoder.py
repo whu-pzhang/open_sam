@@ -115,7 +115,7 @@ class MaskDecoder(nn.Module):
 
         # Select the correct mask or masks for output
         if multimask_output:
-            mask_slice = slice(1, None)
+            mask_slice = slice(0, None)
         else:
             mask_slice = slice(0, 1)
         masks = masks[:, mask_slice, :, :]
