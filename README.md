@@ -28,18 +28,18 @@ prompt mode
 - 3 pts: 
 
 
-| Model     | Prompt Mode | background | building | mIoU      |
-| --------- | ----------- | ---------- | -------- | --------- |
-| SAM-Tiny  | bbox        | 97.88      | 84.55    | 91.22     |
-|           | 1 pt        | 94.07      | 60.93    | 77.5      |
-|           | 2 pts       | 95.26      | 69.73    | 82.49     |
-|           | 3 pts       | 95.4       | 71.24    | 83.32     |
-| SAM-Base  | bbox        | 98.35      | 87.31    | 92.83     |
-|           | 1 pt        |            |          |           |
-|           | 2 pts       |            |          |           |
-|           | 3 pts       |            |          |           |
-| SAM-Large | bbox        | 98.63      | 89.4     | **94.02** |
-| SAM-Huge  | bbox        | 98.59      | 89.14    | 93.87     |
+| Model     | Prompt Mode | building |
+| --------- | ----------- | -------- |
+| SAM-Tiny  | bbox        | 84.55    |
+|           | 1 pt        | 60.93    |
+|           | 2 pts       | 69.73    |
+|           | 3 pts       | 71.24    |
+| SAM-Base  | bbox        | 86.86    |
+|           | 1 pt        |          |
+|           | 2 pts       |          |
+|           | 3 pts       |          |
+| SAM-Large | bbox        | **89.1** |
+| SAM-Huge  | bbox        | 88.97    |
 
 
 
@@ -74,17 +74,42 @@ with clutter
 
 | Model    | Prompt Mode | Style             | whu-building | loveda | potsdam | Epoch |
 | -------- | ----------- | ----------------- | ------------ | ------ | ------- | ----- |
-| SAM-Tiny | bbox        | Finetune(decoder) | 93.77        |        |         |       |
-|          | 1 pt        |                   | 82.08        |        |         |       |
+| SAM-Tiny | bbox        | Finetune(decoder) | 93.68        |        |         |       |
+|          | 1 pt        |                   | 86.27        |        |         |       |
 
 
-性能对比
+main 分支 `multimask_output=False`
 
 | Model    | Finetune dataset | whu-building | loveda | potsdam | Epoch |
 | -------- | ---------------- | ------------ | ------ | ------- | ----- |
 | SAM-tiny | whu-building     | 93.91        | 58.26  | 68.94   | 12    |
 | SAM-tiny | loveda           | 91.71        | 57.20  | 62.34   | 12    |
 | SAM-tiny | potsdam          | 90.73        | 59.23  | 72.86   | 12    |
+
+main 分支 `multimask_output=True`
+
+| Model    | Finetune dataset | whu-building | loveda | potsdam | Epoch |
+| -------- | ---------------- | ------------ | ------ | ------- | ----- |
+| SAM-tiny | whu-building     | 88.73        | 46.9   | 47.92   | 12    |
+| SAM-tiny | loveda           |              |        |         | 12    |
+| SAM-tiny | potsdam          |              |        |         | 12    |
+
+
+dev 分支 `multimask_output=True`
+
+| Model    | Finetune dataset | whu-building | loveda | potsdam | Mean | Epoch |
+| -------- | ---------------- | ------------ | ------ | ------- | ---- | ----- |
+| SAM-tiny | whu-building     | 89.22        | 58.25  | 69.05   |      | 12    |
+| SAM-tiny | loveda           | 85.33        | 61.75  | 69.69   |      | 12    |
+| SAM-tiny | potsdam          | 82.34        | 62.42  | 77.91   |      | 12    |
+
+dev 分支 `multimask_output=random`
+
+| Model    | Finetune dataset | whu-building | loveda | potsdam | Mean | Epoch |
+| -------- | ---------------- | ------------ | ------ | ------- | ---- | ----- |
+| SAM-tiny | whu-building     | 88.78        | 49.03  | 53.28   |      | 12    |
+| SAM-tiny | loveda           |              |        |         |      | 12    |
+| SAM-tiny | potsdam          |              |        |         |      | 12    |
 
 
 ## Acknowledgement
