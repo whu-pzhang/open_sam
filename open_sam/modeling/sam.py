@@ -133,7 +133,7 @@ class SAM(BaseModel):
         '''
 
         if mode == 'loss':
-            return self.loss(inputs, data_samples, multimask_output)
+            return self.loss(inputs, data_samples, multimask_output=True)
         elif mode == 'predict':
             return self.predict(inputs, data_samples, multimask_output)
         elif mode == 'tensor':
@@ -156,7 +156,6 @@ class SAM(BaseModel):
              multimask_output: bool = False):
         gt_masks = self._stack_batch_gt(data_samples)
 
-        multimask_output = True if random.random() > 0.5 else False
         low_res_logits, iou_predictions = self._forward(
             inputs, multimask_output)
 
