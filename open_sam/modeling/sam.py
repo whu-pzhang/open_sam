@@ -159,13 +159,10 @@ class SAM(BaseModel):
         low_res_logits, iou_predictions = self._forward(
             inputs, multimask_output=multimask_output)
 
-        loss_dict = dict()
-        loss_mask = 0
-        loss_dice = 0
-        loss_iou = 0
+        loss_dict = dict(loss_mask=0., loss_dice=0., loss_iou=0.)
         for batch_idx, (logits, iou_scores) in enumerate(
                 zip(low_res_logits, iou_predictions)):
-
+            # 10,3,256,256; 10,3; 10,1024,1024
             gt_mask = gt_masks[batch_idx]
             logits = F.interpolate(logits,
                                    size=gt_mask.shape[-2:],
@@ -174,45 +171,48 @@ class SAM(BaseModel):
 
             # handle multiple-mask output
             num_masks_per_prompt = logits.size(1)
-            if num_masks_per_prompt > 1:
-                b, num_masks, h, w = logits.shape
-                iou_scores, idx = torch.max(iou_scores, dim=1, keepdim=True)
-                idx = idx.reshape(b, 1, 1, 1).expand(b, 1, h, w)
-                logits = torch.gather(logits, dim=1, index=idx)
-
             num_masks = gt_mask.size(0)
-            # ===
-            with torch.no_grad():
-                point_coords = get_uncertain_point_coords_with_randomness(
-                    logits, None, self.num_points, self.oversample_ratio,
-                    self.importance_sample_ratio)
-                mask_point_targets = point_sample(
-                    gt_mask.unsqueeze(1).float(), point_coords).squeeze(1)
 
-            mask_point_preds = point_sample(logits, point_coords)
+            loss_min = float('inf')
+            cur_loss_dict = dict()
+            for idx in range(num_masks_per_prompt):
+                with torch.no_grad():
+                    point_coords = get_uncertain_point_coords_with_randomness(
+                        logits[:, idx:idx + 1], None, self.num_points,
+                        self.oversample_ratio, self.importance_sample_ratio)
+                    mask_point_targets = point_sample(
+                        gt_mask.unsqueeze(1).float(), point_coords).squeeze(1)
 
-            # cls loss
-            loss_mask += self.loss_mask(mask_point_preds.reshape(-1),
-                                        mask_point_targets.reshape(-1),
-                                        avg_factor=num_masks * self.num_points)
-            # dice loss
-            loss_dice += self.loss_dice(mask_point_preds,
-                                        mask_point_targets,
-                                        avg_factor=num_masks)
+                mask_point_preds = point_sample(logits[:, idx:idx + 1],
+                                                point_coords)
 
-            # TODO: loss iou
-            # compute predicted mask iou with gt
-            # iou_scores
-            batch_iou = calc_iou(logits.squeeze(1), gt_mask)
-            loss_iou += self.loss_iou(iou_scores,
-                                      batch_iou,
-                                      avg_factor=num_masks)
+                # cls loss
+                loss_mask = self.loss_mask(mask_point_preds.reshape(-1),
+                                           mask_point_targets.reshape(-1),
+                                           avg_factor=num_masks *
+                                           self.num_points)
+                # dice loss
+                loss_dice = self.loss_dice(mask_point_preds,
+                                           mask_point_targets,
+                                           avg_factor=num_masks)
+                # iou loss
+                batch_iou = calc_iou(logits[:, idx], gt_mask)
+                loss_iou = self.loss_iou(iou_scores[:, idx:idx + 1],
+                                         batch_iou,
+                                         avg_factor=num_masks)
 
-            # ===
+                loss_value = loss_mask + loss_dice + loss_iou
+                if loss_value < loss_min:
+                    cur_loss_dict.update(loss_mask=loss_mask,
+                                         loss_dice=loss_dice,
+                                         loss_iou=loss_iou)
+                    loss_min = loss_value
+
+            for k, v in cur_loss_dict.items():
+                loss_dict[k] += v
+
         batch_size = len(data_samples)
-        loss_dict['loss_mask'] = loss_mask / batch_size
-        loss_dict['loss_dice'] = loss_dice / batch_size
-        loss_dict['loss_iou'] = loss_iou / batch_size
+        loss_dict = {k: v / batch_size for k, v in loss_dict.items()}
 
         return loss_dict
 
