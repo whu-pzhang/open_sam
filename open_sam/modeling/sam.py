@@ -176,7 +176,7 @@ class SAM(BaseModel):
             num_masks_per_prompt = logits.size(1)
             if num_masks_per_prompt > 1:
                 b, num_masks, h, w = logits.shape
-                idx = torch.argmax(iou_scores, dim=1, keepdim=True)
+                iou_scores, idx = torch.max(iou_scores, dim=1, keepdim=True)
                 idx = idx.reshape(b, 1, 1, 1).expand(b, 1, h, w)
                 logits = torch.gather(logits, dim=1, index=idx)
 
