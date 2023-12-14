@@ -5,7 +5,7 @@ data_preprocessor = dict(type='SamDataPreprocessor',
                          bgr_to_rgb=True,
                          size=(1024, 1024))
 
-checkpoint = 'weights/sam_vit-tiny.pth'  # noqa
+checkpoint = 'weights/sam_vit-tiny-6dbb9052.pth'  # noqa
 model = dict(
     type='SAM',
     data_preprocessor=data_preprocessor,
