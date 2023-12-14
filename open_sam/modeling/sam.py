@@ -157,7 +157,7 @@ class SAM(BaseModel):
         gt_masks = self._stack_batch_gt(data_samples)
 
         low_res_logits, iou_predictions = self._forward(
-            inputs, multimask_output)
+            inputs, multimask_output=multimask_output)
 
         loss_dict = dict()
         loss_mask = 0
