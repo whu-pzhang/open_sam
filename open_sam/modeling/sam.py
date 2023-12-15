@@ -74,7 +74,6 @@ class SAM(BaseModel):
             torch.Tensor([58.395, 57.12, 57.375]).view(-1, 1, 1), False)
 
         # =========
-
         self.test_cfg = test_cfg
         self.train_cfg = train_cfg
         if train_cfg:
@@ -131,7 +130,6 @@ class SAM(BaseModel):
             - If ``mode="predict"``, return a list of :obj:`SamDataSample`.
             - If ``mode="loss"``, return a dict of tensor.
         '''
-
         if mode == 'loss':
             return self.loss(inputs, data_samples, multimask_output=True)
         elif mode == 'predict':
@@ -216,31 +214,44 @@ class SAM(BaseModel):
 
         return loss_dict
 
-    def predict(self, batch_input, batch_data_samples, multimask_output=False):
-        pred_masks, iou_predictions = self._forward(batch_input,
-                                                    multimask_output)
+    def predict(self,
+                inputs,
+                data_samples: OptSampleList,
+                multimask_output: bool = False):
+        batch_img_metas = [
+            data_sample.metainfo for data_sample in data_samples
+        ]
+        pred_logits, iou_predictions = self._forward(
+            inputs, multimask_output=multimask_output)
 
         outputs = []
-        for image_record, low_res_mask, iou_prediction in zip(
-                batch_input, pred_masks, iou_predictions):
-            masks = self.postprocess_masks(
-                low_res_mask,
-                input_size=image_record['image'].shape[-2:],
-                original_size=image_record['original_size'],
-            )
+        for img_id in range(len(batch_img_metas)):
+            img_meta = batch_img_metas[img_id]
+            logits = pred_logits[img_id]
+            iou_scores = iou_predictions[img_id]
 
-            masks = masks > self.mask_threshold
+            logits_pred = F.interpolate(logits,
+                                        self.image_encoder.img_size,
+                                        mode='bilinear',
+                                        align_corners=False)
+            img_shape = img_meta['img_shape']
+            logits_pred = logits_pred[..., :img_shape[0], :img_shape[1]]
+            logits_pred = F.interpolate(logits_pred,
+                                        size=img_meta['ori_shape'],
+                                        mode='bilinear',
+                                        align_corners=False)
+            masks_pred = logits_pred > self.mask_threshold
+
             outputs.append({
-                'masks': masks,
-                'iou_predictions': iou_prediction,
-                'low_res_logits': low_res_mask,
+                'masks': masks_pred,
+                'iou_predictions': iou_scores,
+                'low_res_logits': logits
             })
 
         # === TODO ===
-        batch_data_samples = self.add_pred_to_datasample(
-            batch_data_samples, outputs)
+        data_samples = self.add_pred_to_datasample(data_samples, outputs)
 
-        return batch_data_samples
+        return data_samples
 
     def add_pred_to_datasample(self, batch_data_samples, results_list):
         """Add predictions to `SamDataSample`.
@@ -251,28 +262,18 @@ class SAM(BaseModel):
             results_list (list[:obj:`dict`]): sam results of each image.
         """
         for data_sample, pred_output in zip(batch_data_samples, results_list):
-            img_meta = data_sample.metainfo
             pred_masks = pred_output['masks']  # B,num_masks,H,W
             iou_scores = pred_output['iou_predictions']
             num_masks = pred_masks.size(1)
 
             if num_masks > 1:
-                idx = torch.argmax(pred_output['iou_predictions'])
-                iou_scores = iou_scores[:, idx]
+                iou_scores, idx = torch.max(pred_output['iou_predictions'])
                 pred_masks = pred_masks[:, idx:idx + 1]
             pred_masks = pred_masks.squeeze(1)
 
             pred_instances = InstanceData()
             pred_instances.masks = pred_masks.detach()
             pred_instances.scores = iou_scores.detach()
-
-            if data_sample.gt_instances:
-                if data_sample.gt_instances.get('labels', None) is not None:
-                    pred_instances.labels = data_sample.gt_instances['labels']
-                else:
-                    pred_instances.labels = [1] * len(pred_masks)
-            else:
-                pred_instances.labels = [None] * len(pred_masks)
 
             data_sample.pred_instances = pred_instances
 
@@ -290,22 +291,20 @@ class SAM(BaseModel):
         Borrowed from https://github.com/facebookresearch/segment-anything
 
         Arguments:
-          batched_input (list(dict)): A list over input images, each a
-            dictionary with the following keys. A prompt key can be
-            excluded if it is not present.
-              'image': The image as a torch tensor in 3xHxW format,
+          inputs (dict):  a dictionary with the following keys
+              'image': The image as a torch tensor in Bx3xHxW format,
                 already transformed for input to the model.
               'original_size': (tuple(int, int)) The original size of
                 the image before transformation, as (H, W).
-              'point_coords': (torch.Tensor) Batched point prompts for
-                this image, with shape BxNx2. Already transformed to the
+              'point_coords': (list[torch.Tensor]) Batched point prompts for
+                each image, each with shape BxNx2. Already transformed to the
                 input frame of the model.
-              'point_labels': (torch.Tensor) Batched labels for point prompts,
-                with shape BxN.
-              'boxes': (torch.Tensor) Batched box inputs, with shape Bx4.
+              'point_labels': (list[torch.Tensor]) Batched labels for point prompts,
+                each tensor with shape BxN.
+              'boxes': (list[torch.Tensor]) Batched box inputs, each with shape Bx4.
                 Already transformed to the input frame of the model.
-              'mask_inputs': (torch.Tensor) Batched mask inputs to the model,
-                in the form Bx1xHxW.
+              'mask_inputs': (list[torch.Tensor]) Batched mask inputs to the model,
+                each mask in the form Bx1xHxW.
           multimask_output (bool): Whether the model should predict multiple
             disambiguating masks, or return a single mask.
 
@@ -327,13 +326,14 @@ class SAM(BaseModel):
         pred_masks_list = []
         iou_predictions_list = []
         # 0: point; 1: bbox
-        prompt_type = torch.randint(0, 2, size=(len(image_embeddings), ))
+        prompt_types = inputs['prompt_type']
         for idx, curr_embedding in enumerate(image_embeddings):
-            if prompt_type[idx] == 0:  # point prompt
+            prompt = random.choice(prompt_types[idx])
+            if prompt == 'point':  # point prompt
                 points = (inputs['point_coords'][idx],
                           inputs['point_labels'][idx])
                 boxes = None
-            elif prompt_type[idx] == 1:  # bbox prompt
+            elif prompt == 'bbox':  # bbox prompt
                 points = None
                 boxes = inputs['boxes'][idx]
 

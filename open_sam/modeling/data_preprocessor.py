@@ -35,8 +35,7 @@ class SamDataPreprocessor(BaseDataPreprocessor):
                  pad_val: Number = 0,
                  mask_pad_val: Number = 255,
                  bgr_to_rgb: bool = False,
-                 rgb_to_bgr: bool = False,
-                 test_cfg: dict = None):
+                 rgb_to_bgr: bool = False):
         super().__init__()
         self.size = size
         self.pad_val = pad_val
@@ -58,9 +57,6 @@ class SamDataPreprocessor(BaseDataPreprocessor):
                                  torch.tensor(std).view(-1, 1, 1), False)
         else:
             self._enable_normalize = False
-
-        # Support different padding methods in testing
-        self.test_cfg = test_cfg
 
     def forward(self, data: dict, training: bool = False):
         """Perform normalization,padding and bgr2rgb conversion based on
@@ -96,20 +92,17 @@ class SamDataPreprocessor(BaseDataPreprocessor):
                                                pad_val=self.pad_val,
                                                mask_pad_val=self.mask_pad_val)
         else:
-            img_size = inputs[0].shape[1:]
-            assert all(input_.shape[1:] == img_size for input_ in inputs),  \
+            img_size = inputs['image'][0].shape[1:]
+            assert all(image_.shape[1:] == img_size for image_ in inputs['image']),  \
                 'The image size in a batch should be the same.'
             # pad images when testing
-            if self.test_cfg:
-                inputs, padded_samples = stack_batch(
-                    inputs=inputs,
-                    size=self.test_cfg.get('size', None),
-                    pad_val=self.pad_val,
-                    mask_pad_val=self.mask_pad_val)
-                for data_sample, pad_info in zip(data_samples, padded_samples):
-                    data_sample.set_metainfo({**pad_info})
-            else:
-                inputs = torch.stack(inputs, dim=0)
+            inputs, padded_samples = stack_batch(
+                inputs=inputs,
+                size=self.size,
+                pad_val=self.pad_val,
+                mask_pad_val=self.mask_pad_val)
+            for data_sample, pad_info in zip(data_samples, padded_samples):
+                data_sample.set_metainfo({**pad_info})
 
         # for k, v in inputs.items():
         #     print(f'{k} = {v}')

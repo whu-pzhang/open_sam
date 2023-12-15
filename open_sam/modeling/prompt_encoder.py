@@ -88,18 +88,13 @@ class PromptEncoder(nn.Module):
         """Embeds point prompts."""
         points = points + 0.5  # Shift to center of pixel
         if pad:
-            if points.is_nested:
-                points = torch.cat([points, torch.zeros_like(points)], dim=2)
-                labels = torch.cat([labels, -torch.ones_like(labels)], dim=2)
-            else:
-                padding_point = torch.zeros((points.shape[0], 1, 2),
-                                            device=points.device,
-                                            dtype=points.dtype)
-                padding_label = -torch.ones((labels.shape[0], 1),
-                                            device=labels.device,
-                                            dtype=points.dtype)
-                points = torch.cat([points, padding_point], dim=1)
-                labels = torch.cat([labels, padding_label], dim=1)
+            padding_point = torch.zeros((points.shape[0], 1, 2),
+                                        device=points.device,
+                                        dtype=points.dtype)
+            padding_label = -torch.ones(
+                (labels.shape[0], 1), device=labels.device, dtype=points.dtype)
+            points = torch.cat([points, padding_point], dim=1)
+            labels = torch.cat([labels, padding_label], dim=1)
         point_embedding = self.pe_layer.forward_with_coords(
             points, self.input_image_size)
         point_embedding = torch.where(
@@ -183,18 +178,9 @@ class PromptEncoder(nn.Module):
         if masks is not None:
             dense_embeddings = self._embed_masks(masks)
         else:
-            if sparse_embeddings.is_nested:
-                embed_weight = (self.no_mask_embed.weight.squeeze(0).unsqueeze(
-                    -1).unsqueeze(-1).expand(-1, self.image_embedding_size[0],
-                                             self.image_embedding_size[1]))
-                dense_embeddings = (torch.zeros_like(
-                    sparse_embeddings.unsqueeze(2).prod(
-                        dim=-1, keepdim=True).prod(dim=-2, keepdim=True)) +
-                                    embed_weight)
-            else:
-                dense_embeddings = self.no_mask_embed.weight.reshape(
-                    1, -1, 1, 1).expand(bs, -1, self.image_embedding_size[0],
-                                        self.image_embedding_size[1])
+            dense_embeddings = self.no_mask_embed.weight.reshape(
+                1, -1, 1, 1).expand(bs, -1, self.image_embedding_size[0],
+                                    self.image_embedding_size[1])
 
         return sparse_embeddings.to(dense_embeddings.dtype), dense_embeddings
 

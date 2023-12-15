@@ -55,4 +55,5 @@ model = dict(
         oversample_ratio=3.0,
         importance_sample_ratio=0.75,
     ),
+    test_cfg=dict(prompt_batch_size=32, mask_threshold=0.),
 )

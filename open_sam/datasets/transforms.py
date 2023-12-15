@@ -18,7 +18,6 @@ from mmdet.structures.mask import BitmapMasks
 import pycocotools.mask as maskUtils
 
 from open_sam.registry import TRANSFORMS
-
 from .sam_data_sample import SamDataSample
 
 
@@ -196,10 +195,10 @@ class LoadAnnotations(MMCV_LoadAnnotations):
 
 @TRANSFORMS.register_module()
 class GenerateSAMPrompt(BaseTransform):
-    valid_prompts = ['point', 'boxes']
+    valid_prompts = ['point', 'bbox']
 
     def __init__(self,
-                 prompt_type=['point', 'boxes'],
+                 prompt_type=['point', 'bbox'],
                  max_instances_per_classes=15,
                  points_per_instance=2,
                  noise_cfg=dict(bbox_std_ratio=0.1, bbox_max_offset=20),
@@ -237,6 +236,7 @@ class GenerateSAMPrompt(BaseTransform):
             max_instances=self.max_instances_per_classes,
             points_per_instance=self.points_per_instance,
             noise_cfg=self.noise_cfg)
+        results.update(prompt_type=self.prompt_type)
         return results
 
     @staticmethod
@@ -569,6 +569,7 @@ class PackSamInputs(BaseTransform):
         if 'boxes' in results:
             inputs['boxes'] = to_tensor(results['boxes'])
 
+        inputs['prompt_type'] = results['prompt_type']
         packed_results['inputs'] = inputs
 
         if 'gt_ignore_flags' in results:

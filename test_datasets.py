@@ -268,7 +268,6 @@ def test_dataloader():
 
 
 def test_sam_dataset():
-
     train_pipeline = [
         dict(type='LoadImageFromFile'),
         dict(type='LoadAnnotations', with_bbox=True, with_mask=True),
@@ -277,23 +276,25 @@ def test_sam_dataset():
         dict(type='ResizeLongestEdge', scale=1024),
         dict(
             type='GenerateSAMPrompt',
-            prompt_type=['point', 'boxes'],
-            # prompt_type='boxes',
+            prompt_type=['point', 'bbox'],
             max_instances_per_classes=10,
             points_per_instance=1,
             noise_cfg=None,
         ),
-        # dict(type='PackSamInputs')
+        dict(type='PackSamInputs')
     ]
     sam_dataset_cfg = dict(type='SamDataset',
-                           data_root='data/rs_sam_data',
-                           indices=range(4000, 4010),
+                           data_root='data/rs_sam_data/train_whu-building',
+                           indices=range(100, 110),
                            filter_cfg=dict(min_size=32),
                            pipeline=train_pipeline)
 
     dataset = DATASETS.build(sam_dataset_cfg)
 
     sample = dataset[0]
+
+    print(sample)
+    quit()
 
     for sample in dataset:
         print(sample['img_path'])

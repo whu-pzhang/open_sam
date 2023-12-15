@@ -164,10 +164,14 @@ def stack_batch(inputs: Mapping[str, List[torch.Tensor]],
             padded_samples.append(data_sample)
         else:
             padded_samples.append(
-                dict(img_padding_size=padding_size,
-                     pad_shape=pad_img.shape[-2:]))
+                dict(ori_shape=tensor.shape[-2:],
+                     img_shape=tensor.shape[-2:],
+                     padding_size=padding_size))
 
     padded_inputs['image'] = torch.stack(padded_imgs, dim=0)
+
+    prompt_type = inputs.pop('prompt_type')
+    padded_inputs['prompt_type'] = list(zip(*prompt_type))
     for k, v in inputs.items():
         padded_inputs[k] = v
 

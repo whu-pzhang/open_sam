@@ -90,7 +90,7 @@ main 分支 `multimask_output=True`
 
 | Model    | Finetune dataset | whu-building | loveda | potsdam | Epoch |
 | -------- | ---------------- | ------------ | ------ | ------- | ----- |
-| SAM-tiny | whu-building     | 88.73        | 46.9   | 47.92   | 12    |
+| SAM-tiny | whu-building     | 89.13        | 56.34  | 64.6    | 12    |
 | SAM-tiny | loveda           |              |        |         | 12    |
 | SAM-tiny | potsdam          |              |        |         | 12    |
 

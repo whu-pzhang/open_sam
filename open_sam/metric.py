@@ -72,26 +72,30 @@ class ClassAgnosticIoU(_IoUMetric):
             pred_seg_map = self.instance2segmap(pred)
             gt_seg_map = self.instance2segmap(gt)
 
+            # import matplotlib.pyplot as plt
+            # from pathlib import Path
+            # f, ax = plt.subplots(1, 2)
+            # ax[0].imshow(gt_seg_map.cpu().numpy())
+            # ax[1].imshow(pred_seg_map.cpu().numpy())
+            # plt.title(Path(data_sample['img_path']).name)
+            # plt.show()
+
             self.results.append(
                 self.intersect_and_union(pred_seg_map, gt_seg_map, num_classes,
                                          self.ignore_index))
 
     def instance2segmap(self, instance: InstanceData):
         masks = instance['masks']
+        if isinstance(masks, BitmapMasks):
+            masks = masks.to_tensor(dtype=torch.uint8, device='cpu')
 
-        seg_map = torch.zeros(size=masks.shape[1:],
-                              dtype=torch.int,
-                              device=masks.device)
-
+        seg_map = torch.zeros(size=masks.shape[1:], dtype=torch.uint8)
         masks_dict = [
             dict(mask=m, area=m.sum()) for idx, m in enumerate(masks)
         ]
         sorted_masks = sorted(masks_dict,
                               key=(lambda x: x['area']),
                               reverse=True)
-
-        # for idx, mask in enumerate(masks):
-        #     seg_map[mask.bool()] = labels[idx].to(torch.int)
         for ann in sorted_masks:
             mask = ann['mask'].bool()
             seg_map[mask] = 1
