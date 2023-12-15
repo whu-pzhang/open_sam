@@ -1,6 +1,9 @@
 from typing import Sequence
+import os.path as osp
+
 import torch
 import numpy as np
+from PIL import Image
 
 from mmengine.evaluator import BaseMetric
 from mmseg.evaluation import IoUMetric as _IoUMetric
@@ -63,7 +66,9 @@ class ClassAwareIoU(_IoUMetric):
 class ClassAgnosticIoU(_IoUMetric):
 
     def process(self, data_batch: dict, data_samples: Sequence[dict]) -> None:
-        num_classes = 2
+        dataset_meta = self.dataset_meta
+        num_classes = len(dataset_meta['classes'])
+        palette = dataset_meta['palette']
         for data_sample in data_samples:
             pred = data_sample['pred_instances']
             gt = data_sample['gt_instances']
@@ -83,6 +88,20 @@ class ClassAgnosticIoU(_IoUMetric):
             self.results.append(
                 self.intersect_and_union(pred_seg_map, gt_seg_map, num_classes,
                                          self.ignore_index))
+
+            # format_result
+            if self.output_dir is not None:
+                basename = osp.splitext(osp.basename(
+                    data_sample['img_path']))[0]
+                png_filename = osp.abspath(
+                    osp.join(self.output_dir, f'{basename}.png'))
+                output_mask = pred_seg_map.cpu().numpy()
+                if data_sample.get('reduce_zero_label', False):
+                    output_mask = output_mask + 1
+                output = Image.fromarray(output_mask.astype(
+                    np.uint8)).convert('P')
+                output.putpalette([i for rgb in palette for i in rgb])
+                output.save(png_filename)
 
     def instance2segmap(self, instance: InstanceData):
         masks = instance['masks']
