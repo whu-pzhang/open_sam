@@ -3,10 +3,12 @@
 
 ## TODO
 
+- [x] 支持 MobileSAM
+- [ ] 支持 EdgeSAM
 - [x] 支持 mask2json、coco2json，数据全部采用 SA-1B 的 json 格式
 - [x] 支持 SAM 微调训练
 - [x] 优化 point 取样方式，提高效率
-- [x] 修改训练为batch训练，而非单张图计算后汇总
+- [x] 修改训练为 batch 训练，而非单张图计算后汇总
 - [ ] 支持 Dynamic prompt sampling
 - [ ] 支持 gradio 在线 demo
 - [ ] 支持 onnx 导出和推理
