@@ -5,7 +5,7 @@ _base_ = [
 ]
 
 # training schedule
-train_cfg = dict(type='EpochBasedTrainLoop', max_epochs=12, val_interval=13)
+train_cfg = dict(type='EpochBasedTrainLoop', max_epochs=12, val_interval=2)
 val_cfg = dict(type='ValLoop')
 test_cfg = dict(type='TestLoop')
 

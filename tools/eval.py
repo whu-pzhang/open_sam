@@ -20,6 +20,7 @@ def get_arguments():
 
     parser.add_argument('--pred_path', type=str)
     parser.add_argument('--gt_path', type=str)
+    parser.add_argument('--seg_map_suffix', type=str, default='.png')
     parser.add_argument('--num-classes', type=int)
     parser.add_argument('--reduce-zero-label', action='store_true')
     parser.add_argument('--scale', type=int, default=1)
@@ -57,7 +58,7 @@ def main():
 
     suffix = ('*.jpg', '*.png', '*.tiff', '*.tif')
 
-    gt_images = [f for s in suffix for f in gt_dir.rglob(s)]
+    # gt_images = [f for s in suffix for f in gt_dir.rglob(s)]
     pred_images = [f for s in suffix for f in pred_dir.rglob(s)]
 
     metric = IoUMetric(
@@ -74,17 +75,18 @@ def main():
         ],
         iou_metrics=['mIoU', 'mFscore'])
     # pbar = tqdm(total=len(gt_images))
-    pbar = ProgressBar(task_num=len(gt_images))
-    for gt_img, pred_img in zip(gt_images, pred_images):
-        gt = np.array(Image.open(gt_img))
+    pbar = ProgressBar(task_num=len(pred_images))
+    for pred_img in pred_images:
+        gt_path = gt_dir / (pred_img.stem + args.seg_map_suffix)
+        gt = np.array(Image.open(gt_path))
         gt = (gt // args.scale).astype(np.uint8)
-
-        pred = np.array(Image.open(pred_img))
 
         if args.reduce_zero_label:
             gt[gt == 0] = 255
             gt = gt - 1
             gt[gt == 254] = 255
+
+        pred = np.array(Image.open(pred_img))
 
         metric.process(gt, pred)
 
