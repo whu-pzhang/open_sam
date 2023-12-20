@@ -4,7 +4,7 @@
 ## TODO
 
 - [x] 支持 MobileSAM
-- [ ] 支持 EdgeSAM
+- [x] 支持 EdgeSAM
 - [x] 支持 mask2json、coco2json，数据全部采用 SA-1B 的 json 格式
 - [x] 支持 SAM 微调训练
 - [x] 优化 point 取样方式，提高效率
