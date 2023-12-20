@@ -1,11 +1,23 @@
 _base_ = [
     '../_base_/datasets/rs_sam_data.py',
     '../_base_/default_runtime.py',
-    '../_base_/models/sam_tiny.py',
+    '../_base_/models/mobile_sam.py',
 ]
 
+data_preprocessor = dict(type='SamDataPreprocessor',
+                         mean=[123.675, 116.28, 103.53],
+                         std=[58.395, 57.12, 57.375],
+                         bgr_to_rgb=True,
+                         size=(512, 512))
+model = dict(type='SAM',
+             data_preprocessor=data_preprocessor,
+             image_encoder=dict(img_size=512),
+             prompt_encoder=dict(type='PromptEncoder',
+                                 image_embedding_size=(32, 32),
+                                 input_image_size=(512, 512)))
+
 # training schedule
-train_cfg = dict(type='EpochBasedTrainLoop', max_epochs=12, val_interval=2)
+train_cfg = dict(type='EpochBasedTrainLoop', max_epochs=12, val_interval=13)
 val_cfg = dict(type='ValLoop')
 test_cfg = dict(type='TestLoop')
 
