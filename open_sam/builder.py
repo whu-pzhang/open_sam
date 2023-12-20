@@ -7,6 +7,7 @@ register_all_modules()
 
 # yapf: disable
 model_zoo = {
+    'edge':'weights/edge-sam-3x-5a3e3261.pth',
     'tiny': 'weights/sam_vit-tiny-6dbb9052.pth', # noqa
     'base': 'https://download.openmmlab.com/mmsegmentation/v0.5/sam/sam_vit-base-p16_3rdparty_sa1b-1024x1024_20230413-78a25eed.pth',  # noqa
     'large': 'https://download.openmmlab.com/mmsegmentation/v0.5/sam/sam_vit-large-p16_3rdparty_sa1b-1024x1024_20230413-940520da.pth',  # noqa
@@ -31,8 +32,17 @@ def build_sam_vit_t(checkpoint=None):
     return build_sam(arch='tiny', checkpoint=checkpoint)
 
 
+def build_edge_sam(checkpoint=None):
+    return build_sam(arch='edge', checkpoint=checkpoint)
+
+
 def build_sam(arch='huge', checkpoint=None):
-    if arch == 'tiny':
+    if arch == 'edge':
+        image_encoder = dict(type='RepViT',
+                             arch='m1',
+                             img_size=1024,
+                             out_channels=256)
+    elif arch == 'tiny':
         image_encoder = dict(type='TinyViT',
                              arch='5m',
                              img_size=1024,
@@ -71,7 +81,7 @@ def build_sam(arch='huge', checkpoint=None):
                                transformer_dim=256,
                                iou_head_depth=3,
                                iou_head_hidden_dim=256)))
-
+    model.eval()
     if checkpoint is not None:
         model_url = checkpoint
     else:
@@ -86,5 +96,6 @@ sam_model_registry = {
     "vit_h": build_sam_vit_h,
     "vit_l": build_sam_vit_l,
     "vit_b": build_sam_vit_b,
-    "vit_t": build_sam_vit_t,
+    "mobile_sam": build_sam_vit_t,
+    "edge_sam": build_edge_sam,
 }

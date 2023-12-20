@@ -6,8 +6,10 @@ import torch.nn.functional as F
 from timm.models.layers import SqueezeExcite
 from mmengine.model.weight_init import trunc_normal_
 from mmengine.model import BaseModule
+from mmpretrain.models.utils import to_2tuple
 
-from .common import LayerNorm2d, UpSampleLayer, OpSequential
+from open_sam.registry import MODELS
+from .common import LayerNorm2d
 from .utils import make_divisible
 
 
@@ -24,9 +26,16 @@ class Conv2d_BN(nn.Sequential):
                  bn_weight_init=1):
         super().__init__()
         self.add_module(
-            'c', nn.Conv2d(a, b, ks, stride, pad, dilation, groups,
-                           bias=False))
-        self.add_module('bn', nn.BatchNorm2d(b))
+            'c',
+            torch.nn.Conv2d(a,
+                            b,
+                            ks,
+                            stride,
+                            pad,
+                            dilation,
+                            groups,
+                            bias=False))
+        self.add_module('bn', torch.nn.BatchNorm2d(b))
         nn.init.constant_(self.bn.weight, bn_weight_init)
         nn.init.constant_(self.bn.bias, 0)
 
@@ -125,15 +134,8 @@ class RepVGGDW(torch.nn.Module):
 
 class RepViTBlock(nn.Module):
 
-    def __init__(self,
-                 inp,
-                 hidden_dim,
-                 oup,
-                 kernel_size,
-                 stride,
-                 use_se,
-                 use_hs,
-                 skip_downsample=False):
+    def __init__(self, inp, hidden_dim, oup, kernel_size, stride, use_se,
+                 use_hs):
         super(RepViTBlock, self).__init__()
         assert stride in [1, 2]
 
@@ -141,8 +143,6 @@ class RepViTBlock(nn.Module):
         assert (hidden_dim == 2 * inp)
 
         if stride == 2:
-            if skip_downsample:
-                stride = 1
             self.token_mixer = nn.Sequential(
                 Conv2d_BN(inp,
                           inp,
@@ -155,7 +155,7 @@ class RepViTBlock(nn.Module):
                 nn.Sequential(
                     # pw
                     Conv2d_BN(oup, 2 * oup, 1, 1, 0),
-                    nn.GELU(),
+                    nn.GELU() if use_hs else nn.GELU(),
                     # pw-linear
                     Conv2d_BN(2 * oup, oup, 1, 1, 0, bn_weight_init=0),
                 ))
@@ -169,7 +169,7 @@ class RepViTBlock(nn.Module):
                 nn.Sequential(
                     # pw
                     Conv2d_BN(inp, hidden_dim, 1, 1, 0),
-                    nn.GELU(),
+                    nn.GELU() if use_hs else nn.GELU(),
                     # pw-linear
                     Conv2d_BN(hidden_dim, oup, 1, 1, 0, bn_weight_init=0),
                 ))
@@ -205,6 +205,7 @@ class BN_Linear(torch.nn.Sequential):
         return m
 
 
+@MODELS.register_module()
 class RepViT(BaseModule):
     #  [kernel size, t, out_channels, with_se, with_hs, stride]
     arch_settings = {
@@ -314,7 +315,7 @@ class RepViT(BaseModule):
         super().__init__(init_cfg=init_cfg)
         # setting of inverted residual blocks
         self.cfgs = self.arch_settings[arch]
-        self.img_size = img_size
+        self.img_size = to_2tuple(img_size)
 
         if isinstance(out_indices, int):
             out_indices = [out_indices]
@@ -341,47 +342,48 @@ class RepViT(BaseModule):
         for idx, (k, t, c, use_se, use_hs, s) in enumerate(self.cfgs):
             output_channel = make_divisible(c, 8)
             exp_size = make_divisible(input_channel * t, 8)
-            skip_downsample = False
             if c != prev_c:
                 self.stage_idx.append(idx - 1)
                 prev_c = c
             layers.append(
                 block(input_channel, exp_size, output_channel, k, s, use_se,
-                      use_hs, skip_downsample))
+                      use_hs))
             input_channel = output_channel
         self.stage_idx.append(idx)
         self.features = nn.ModuleList(layers)
+        self.num_stages = len(self.stage_idx)
 
         stage2_channels = make_divisible(self.cfgs[self.stage_idx[2]][2], 8)
         stage3_channels = make_divisible(self.cfgs[self.stage_idx[3]][2], 8)
-
         self.out_channels = out_channels
         if self.out_channels > 0:
             self.fuse_stage2 = nn.Conv2d(stage2_channels,
                                          self.out_channels,
                                          kernel_size=1,
                                          bias=False)
-            self.fuse_stage3 = OpSequential([
+            self.fuse_stage3 = nn.Sequential(
                 nn.Conv2d(stage3_channels,
                           self.out_channels,
                           kernel_size=1,
                           bias=False),
-                UpSampleLayer(factor=2, mode=interpolate_mode),
-            ])
+                nn.Upsample(scale_factor=2, mode=interpolate_mode),
+            )
 
             self.neck = nn.Sequential(
                 nn.Conv2d(self.out_channels,
                           self.out_channels,
                           kernel_size=1,
-                          bias=False),
-                LayerNorm2d(self.out_channels),
+                          bias=False), LayerNorm2d(self.out_channels),
                 nn.Conv2d(self.out_channels,
                           self.out_channels,
                           kernel_size=3,
                           padding=1,
-                          bias=False),
-                LayerNorm2d(self.out_channels),
-            )
+                          bias=False), LayerNorm2d(self.out_channels))
+
+        # freeze stages only when self.frozen_stages > 0
+        self.frozen_stages = frozen_stages
+        if self.frozen_stages > 0:
+            self._freeze_stages()
 
     def forward(self, x):
         counter = 0
@@ -398,28 +400,39 @@ class RepViT(BaseModule):
                 output_dict[f'stage{counter}'] = x
                 counter += 1
 
-                if self.stage_idx.index(idx) in self.out_indices:
-                    outs.append(x)
-
-        if self.out_channels > 0:
-            x = self.fuse_stage2(output_dict['stage2']) + self.fuse_stage3(
-                output_dict['stage3'])
-            x = self.neck(x)
-            outs.append(x)
+                stage_idx = self.stage_idx.index(idx)
+                if stage_idx in self.out_indices:
+                    if stage_idx < 3:
+                        outs.append(x)
+                    else:
+                        if self.out_channels > 0:
+                            x = self.fuse_stage2(
+                                output_dict['stage2']) + self.fuse_stage3(
+                                    output_dict['stage3'])
+                            x = self.neck(x)
+                            outs.append(x)
 
         return tuple(outs)
 
     def _freeze_stages(self):
-        pass
+        # freeze patch embed
+        m = self.features[0]
+        m.eval()
+        for param in m.parameters():
+            param.requires_grad = False
 
+        # freeze layers
+        for i in range(self.frozen_stages):
+            for j in range(self.stage_idx[i] + 1):
+                m = self.features[j + 1]
+                m.eval()
+                for param in m.parameters():
+                    param.requires_grad = False
 
-def rep_vit_m1(img_size=1024, **kwargs):
-    return RepViT('m1', img_size, **kwargs)
-
-
-def rep_vit_m2(img_size=1024, **kwargs):
-    return RepViT('m2', img_size, **kwargs)
-
-
-def rep_vit_m3(img_size=1024, **kwargs):
-    return RepViT('m3', img_size, **kwargs)
+        # freeze channel_reduction module
+        if self.frozen_stages == self.num_stages and self.out_channels > 0:
+            for name in ['fuse_stage2', 'fuse_stage3', 'neck']:
+                m = getattr(self, name)
+                m.eval()
+                for param in m.parameters():
+                    param.requires_grad = False
