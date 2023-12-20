@@ -94,11 +94,11 @@ main 分支 `multimask_output=False`
 
 main 分支 `multimask_output=True`
 
-| Model    | Finetune dataset | whu-building | loveda | potsdam | Epoch |
-| -------- | ---------------- | ------------ | ------ | ------- | ----- |
-| SAM-tiny | whu-building     | 89.27        | 58.38  | 68.84   | 12    |
-| SAM-tiny | loveda           |              |        |         | 12    |
-| SAM-tiny | potsdam          |              |        |         | 12    |
+| Model    | Finetune dataset | whu-building | loveda       | potsdam      | Epoch |
+| -------- | ---------------- | ------------ | ------------ | ------------ | ----- |
+| SAM-tiny | whu-building     | 89.27(+4.72) | 58.38(-4.59) | 68.84(-7.47) | 12    |
+| SAM-tiny | loveda           | 85.43(+0.88) | 65.4(+2.43)  | 76.78(+0.47) | 12    |
+| SAM-tiny | potsdam          | 82.24(-2.31) | 63.3(+0.33)  | 80.15(+3.84) | 12    |
 
 
 dev 分支 `multimask_output=True`
