@@ -276,7 +276,7 @@ def test_sam_dataset():
         # dict(type='ResizeLongestEdge', scale=1024),
         dict(
             type='GenerateSAMPrompt',
-            prompt_type=['point', 'boxes'],
+            prompt_type=['point', 'bbox'],
             # prompt_type='boxes',
             max_instances_per_classes=5,
             points_per_instance=2,

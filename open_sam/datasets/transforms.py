@@ -18,7 +18,6 @@ from mmdet.structures.mask import BitmapMasks
 import pycocotools.mask as maskUtils
 
 from open_sam.registry import TRANSFORMS
-
 from .sam_data_sample import SamDataSample
 
 
@@ -196,10 +195,11 @@ class LoadAnnotations(MMCV_LoadAnnotations):
 
 @TRANSFORMS.register_module()
 class GenerateSAMPrompt(BaseTransform):
-    valid_prompts = ['point', 'boxes']
+    valid_prompts = ['point', 'bbox']
 
     def __init__(self,
-                 prompt_type=['point', 'boxes'],
+                 test_mode=False,
+                 prompt_type=['point', 'bbox'],
                  max_instances_per_classes=15,
                  points_per_instance=2,
                  noise_cfg=dict(bbox_std_ratio=0.1, bbox_max_offset=20),
@@ -219,6 +219,7 @@ class GenerateSAMPrompt(BaseTransform):
         self.points_per_instance = points_per_instance
         self.ignore_values = ignore_values
         self.noise_cfg = noise_cfg
+        self.test_mode = test_mode
 
     @property
     def add_noise(self):
@@ -237,6 +238,7 @@ class GenerateSAMPrompt(BaseTransform):
             max_instances=self.max_instances_per_classes,
             points_per_instance=self.points_per_instance,
             noise_cfg=self.noise_cfg)
+        results.update(prompt_type=self.prompt_type)
         return results
 
     @staticmethod
@@ -321,11 +323,14 @@ class GenerateSAMPrompt(BaseTransform):
 
         #1. random select ground truth masks as prompt
         num_gts = len(gt_bboxes)
-        # replace=True to ensure the number of prompts is max_instances
-        random_selected_idx = np.random.choice(
-            num_gts,
-            size=max_instances,
-            replace=True if num_gts < max_instances else False)
+        #
+        # train mode: replace=True to ensure the number of prompts is max_instances
+        # test mode: replace=False
+        if self.test_mode:
+            kwargs = dict(size=num_gts, replace=False)
+        else:
+            kwargs = dict(size=max_instances, replace=True)
+        random_selected_idx = np.random.choice(num_gts, **kwargs)
         keep_idxs = []
         boxes = []
         point_coords = []
@@ -355,8 +360,8 @@ class GenerateSAMPrompt(BaseTransform):
         boxes[..., 1::2] = boxes[..., 1::2].clip(0, results['img_shape'][0])
 
         # prompt point
-        point_coords = np.stack(point_coords, axis=0, dtype=np.float32)
-        point_labels = np.stack(point_labels, axis=0, dtype=np.int64)
+        point_coords = np.stack(point_coords, axis=0).astype(np.float32)
+        point_labels = np.stack(point_labels, axis=0).astype(np.int64)
         results.update(boxes=boxes,
                        point_coords=point_coords,
                        point_labels=point_labels)
@@ -569,6 +574,7 @@ class PackSamInputs(BaseTransform):
         if 'boxes' in results:
             inputs['boxes'] = to_tensor(results['boxes'])
 
+        inputs['prompt_type'] = results['prompt_type']
         packed_results['inputs'] = inputs
 
         if 'gt_ignore_flags' in results:

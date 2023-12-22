@@ -209,7 +209,7 @@ class SAM(BaseModel):
             # and each of the predicted masks, but only backpropagate from
             # the lowest loss.
             num_masks = low_res_logits.size(1)
-            loss_min = 9999
+            loss_min = float('inf')
             for idx in range(num_masks):
                 losses = self.loss_single(low_res_logits[:, idx:idx + 1],
                                           iou_scores[:, idx:idx + 1], gt_masks)
@@ -250,31 +250,48 @@ class SAM(BaseModel):
                     loss_dice=loss_dice,
                     loss_iou=loss_iou)
 
-    def predict(self, batch_input, batch_data_samples, multimask_output=False):
-        pred_masks, iou_predictions = self._forward(batch_input,
-                                                    multimask_output)
+    def predict(self,
+                inputs,
+                data_samples: OptSampleList,
+                multimask_output: bool = False):
+        batch_img_metas = [
+            data_sample.metainfo for data_sample in data_samples
+        ]
+
+        pred_logits, iou_predictions = self._forward(
+            inputs, multimask_output=multimask_output)
 
         outputs = []
-        for image_record, low_res_mask, iou_prediction in zip(
-                batch_input, pred_masks, iou_predictions):
-            masks = self.postprocess_masks(
-                low_res_mask,
-                input_size=image_record['image'].shape[-2:],
-                original_size=image_record['original_size'],
-            )
+        # batch 维大小是 image_batch_size * prompt_batch_size
+        # only support image_batch_size=1
+        for img_id in range(len(batch_img_metas)):
+            img_meta = batch_img_metas[img_id]
+            logits = pred_logits
+            iou_scores = iou_predictions
 
-            masks = masks > self.mask_threshold
+            logits_pred = F.interpolate(logits,
+                                        self.image_encoder.img_size,
+                                        mode='bilinear',
+                                        align_corners=False)
+            img_shape = img_meta['img_shape']
+            logits_pred = logits_pred[..., :img_shape[0], :img_shape[1]]
+            logits_pred = F.interpolate(logits_pred,
+                                        size=img_meta['ori_shape'],
+                                        mode='bilinear',
+                                        align_corners=False)
+
+            masks_pred = logits_pred > self.mask_threshold
+
             outputs.append({
-                'masks': masks,
-                'iou_predictions': iou_prediction,
-                'low_res_logits': low_res_mask,
+                'masks': masks_pred,
+                'iou_predictions': iou_scores,
+                'low_res_logits': logits,
             })
 
         # === TODO ===
-        batch_data_samples = self.add_pred_to_datasample(
-            batch_data_samples, outputs)
+        data_samples = self.add_pred_to_datasample(data_samples, outputs)
 
-        return batch_data_samples
+        return data_samples
 
     def add_pred_to_datasample(self, batch_data_samples, results_list):
         """Add predictions to `SamDataSample`.
@@ -324,10 +341,12 @@ class SAM(BaseModel):
                                                    num_prompts,
                                                    dim=0)
 
-        if random.random() > 0.5:  # point prompt
+        prompt_types = list(set([i for p in inputs['prompt_type'] for i in p]))
+        prompt_type = random.choice(prompt_types)
+        if prompt_type == 'point':  # point prompt
             points = (inputs['point_coords'], inputs['point_labels'])
             inputs['boxes'] = None
-        else:  # bbox prompt
+        elif prompt_type == 'bbox':  # bbox prompt
             points = None
 
         sparse_embeddings, dense_embeddings = self.prompt_encoder(

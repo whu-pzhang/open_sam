@@ -1,4 +1,7 @@
 from typing import Sequence
+import os.path as osp
+
+from PIL import Image
 import torch
 import numpy as np
 
@@ -63,7 +66,9 @@ class ClassAwareIoU(_IoUMetric):
 class ClassAgnosticIoU(_IoUMetric):
 
     def process(self, data_batch: dict, data_samples: Sequence[dict]) -> None:
-        num_classes = 2
+        dataset_meta = self.dataset_meta
+        num_classes = len(dataset_meta['classes'])
+        palette = dataset_meta['palette']
         for data_sample in data_samples:
             pred = data_sample['pred_instances']
             gt = data_sample['gt_instances']
@@ -76,13 +81,26 @@ class ClassAgnosticIoU(_IoUMetric):
                 self.intersect_and_union(pred_seg_map, gt_seg_map, num_classes,
                                          self.ignore_index))
 
+            # format_result
+            if self.output_dir is not None:
+                basename = osp.splitext(osp.basename(
+                    data_sample['img_path']))[0]
+                png_filename = osp.abspath(
+                    osp.join(self.output_dir, f'{basename}.png'))
+                output_mask = pred_seg_map.cpu().numpy()
+                if data_sample.get('reduce_zero_label', False):
+                    output_mask = output_mask + 1
+                output = Image.fromarray(output_mask.astype(
+                    np.uint8)).convert('P')
+                output.putpalette([i for rgb in palette for i in rgb])
+                output.save(png_filename)
+
     def instance2segmap(self, instance: InstanceData):
         masks = instance['masks']
+        if isinstance(masks, BitmapMasks):
+            masks = masks.to_tensor(dtype=torch.uint8, device='cpu')
 
-        seg_map = torch.zeros(size=masks.shape[1:],
-                              dtype=torch.int,
-                              device=masks.device)
-
+        seg_map = torch.zeros(size=masks.shape[1:], dtype=torch.uint8)
         masks_dict = [
             dict(mask=m, area=m.sum()) for idx, m in enumerate(masks)
         ]
@@ -90,8 +108,6 @@ class ClassAgnosticIoU(_IoUMetric):
                               key=(lambda x: x['area']),
                               reverse=True)
 
-        # for idx, mask in enumerate(masks):
-        #     seg_map[mask.bool()] = labels[idx].to(torch.int)
         for ann in sorted_masks:
             mask = ann['mask'].bool()
             seg_map[mask] = 1
