@@ -1,5 +1,6 @@
 from typing import Any, Dict, List, Tuple
 import random
+from mmengine.optim import OptimWrapper
 
 import torch
 from torch.nn import functional as F
@@ -94,20 +95,44 @@ class SAM(BaseModel):
     def device(self) -> Any:
         return self.pixel_mean.device
 
-    @torch.no_grad()
-    def get_image_embeddings(self, input_images):
-        r"""
-        Returns the image embeddings by passing the pixel values through the image encoder.
+    def prompt_and_mask_decoder_forward(self,
+                                        inputs,
+                                        image_embeddings,
+                                        multimask_output=True,
+                                        decoder_iter=False):
+        logits_low_res = []
+        iou_scores = []
 
-        Args:
-            image (`torch.FloatTensor` of shape `(batch_size, num_channels, height, width)`):
-                Input pixel values
-        """
-        image_embeddings = self.image_encoder(input_images)[0]
-        return image_embeddings
+        for idx, curr_embedding in enumerate(image_embeddings):
+            if inputs['point_coords'][idx] is not None:
+                points = (inputs['point_coords'][idx],
+                          inputs['point_labels'][idx])
+            else:
+                points = None
 
-    def prompt_and_mask_decoder(self):
-        pass
+            if decoder_iter:
+                with torch.no_grad():
+                    sparse_embeddings, dense_embeddings = self.prompt_encoder(
+                        points=points,
+                        boxes=inputs['boxes'][idx],
+                        masks=inputs['masks'][idx])
+            else:
+                sparse_embeddings, dense_embeddings = self.prompt_encoder(
+                    points=points,
+                    boxes=inputs['boxes'][idx],
+                    masks=inputs['masks'][idx])
+
+            low_res_masks, iou_predictions = self.mask_decoder(
+                image_embeddings=curr_embedding.unsqueeze(0),
+                image_pe=self.prompt_encoder.get_dense_pe(),
+                sparse_prompt_embeddings=sparse_embeddings,
+                dense_prompt_embeddings=dense_embeddings,
+                multimask_output=multimask_output)
+
+            logits_low_res.append(low_res_masks)
+            iou_scores.append(iou_predictions)
+
+        return logits_low_res, iou_scores
 
     def forward(self,
                 inputs,
@@ -157,6 +182,7 @@ class SAM(BaseModel):
         low_res_logits, iou_predictions = self._forward(
             inputs, multimask_output=multimask_output)
 
+        pred_logits = []
         loss_dict = dict(loss_mask=0., loss_dice=0., loss_iou=0.)
         for batch_idx, (logits, iou_scores) in enumerate(
                 zip(low_res_logits, iou_predictions)):
@@ -166,6 +192,7 @@ class SAM(BaseModel):
                                    size=gt_mask.shape[-2:],
                                    mode='bilinear',
                                    align_corners=False)
+            pred_logits.append(logits)
 
             # handle multiple-mask output
             num_masks_per_prompt = logits.size(1)
@@ -212,7 +239,7 @@ class SAM(BaseModel):
         batch_size = len(data_samples)
         loss_dict = {k: v / batch_size for k, v in loss_dict.items()}
 
-        return loss_dict
+        return loss_dict, pred_logits
 
     def predict(self,
                 inputs,
@@ -248,7 +275,6 @@ class SAM(BaseModel):
                 'low_res_logits': logits
             })
 
-        # === TODO ===
         data_samples = self.add_pred_to_datasample(data_samples, outputs)
 
         return data_samples
@@ -322,35 +348,21 @@ class SAM(BaseModel):
                 to subsequent iterations of prediction.
         """
         image_embeddings = self.image_encoder(inputs['image'])[0]
+        del inputs['image']
 
-        pred_masks_list = []
-        iou_predictions_list = []
-        # 0: point; 1: bbox
-        prompt_types = inputs['prompt_type']
-        for idx, curr_embedding in enumerate(image_embeddings):
-            prompt = random.choice(prompt_types[idx])
-            if prompt == 'point':  # point prompt
-                points = (inputs['point_coords'][idx],
-                          inputs['point_labels'][idx])
-                boxes = None
-            elif prompt == 'bbox':  # bbox prompt
-                points = None
-                boxes = inputs['boxes'][idx]
+        # format inputs
+        for idx in range(image_embeddings.size(0)):
+            prompt_type = random.choice(inputs['prompt_type'][idx])
+            if prompt_type == 'point':
+                inputs['boxes'][idx] = None
+            elif prompt_type == 'bbox':
+                inputs['point_coords'][idx] = None
+                inputs['point_labels'][idx] = None
 
-            sparse_embeddings, dense_embeddings = self.prompt_encoder(
-                points=points, boxes=boxes, masks=None)
+        logits_low_res, iou_scores = self.prompt_and_mask_decoder_forward(
+            inputs, image_embeddings, multimask_output, decoder_iter=False)
 
-            low_res_masks, iou_predictions = self.mask_decoder(
-                image_embeddings=curr_embedding.unsqueeze(0),
-                image_pe=self.prompt_encoder.get_dense_pe(),
-                sparse_prompt_embeddings=sparse_embeddings,
-                dense_prompt_embeddings=dense_embeddings,
-                multimask_output=multimask_output)
-
-            pred_masks_list.append(low_res_masks)
-            iou_predictions_list.append(iou_predictions)
-
-        return pred_masks_list, iou_predictions_list
+        return logits_low_res, iou_scores
 
     def postprocess_masks(
         self,
@@ -397,3 +409,23 @@ class SAM(BaseModel):
         padw = img_size - w
         x = F.pad(x, (0, padw, 0, padh))
         return x
+
+    def train_step(self, data,
+                   optim_wrapper: OptimWrapper) -> Dict[str, torch.Tensor]:
+        with optim_wrapper.optim_context(self):
+            data = self.data_preprocessor(data, True)
+            losses_main, pred_logits = self.forward(**data, mode='loss')
+
+        parsed_losses, log_vars = self.parse_losses(losses_main)
+
+        # 1. first update
+        # update_params:
+        #   1. loss.backward()
+        #   2. step
+        #   3. zero_grad()
+        optim_wrapper.update_params(parsed_losses)
+
+        # 2. second update
+        #
+
+        return log_vars

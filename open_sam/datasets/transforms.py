@@ -568,7 +568,7 @@ class PackSamInputs(BaseTransform):
             inputs['point_labels'] = to_tensor(results['point_labels'])
         if 'boxes' in results:
             inputs['boxes'] = to_tensor(results['boxes'])
-
+        inputs['masks'] = None
         inputs['prompt_type'] = results['prompt_type']
         packed_results['inputs'] = inputs
 
