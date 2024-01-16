@@ -209,14 +209,14 @@ class SAM(BaseModel):
             # and each of the predicted masks, but only backpropagate from
             # the lowest loss.
             num_masks = low_res_logits.size(1)
-            loss_min = float('inf')
+            losses = []
             for idx in range(num_masks):
-                losses = self.loss_single(low_res_logits[:, idx:idx + 1],
-                                          iou_scores[:, idx:idx + 1], gt_masks)
-                loss_value = sum(losses.values())
-                if loss_value < loss_min:
-                    loss_dict = losses
-                    loss_min = loss_value
+                losses.append(
+                    self.loss_single(low_res_logits[:, idx:idx + 1],
+                                     iou_scores[:, idx:idx + 1], gt_masks))
+
+            loss_value = [sum(item.values()) for item in losses]
+            loss_dict = losses[torch.tensor(loss_value).argmin().item()]
         else:
             loss_dict = self.loss_single(low_res_logits, iou_scores, gt_masks)
 

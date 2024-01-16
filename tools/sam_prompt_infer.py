@@ -380,7 +380,7 @@ def parse_args():
     parser.add_argument('--model-type',
                         type=str,
                         default='base',
-                        choices=['tiny', 'base', 'large', 'huge'])
+                        choices=['edge', 'tiny', 'base', 'large', 'huge'])
     parser.add_argument('--dataset', type=str, default='loveda')
     parser.add_argument('--checkpoint', type=str, default=None)
     parser.add_argument('--prompt',
